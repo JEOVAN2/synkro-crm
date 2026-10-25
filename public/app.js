@@ -2,43 +2,105 @@ let chartCatInstance = null;
 let chartCityInstance = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-    loadAllData();
+    checkAuth();
 
-    // REGISTRO DE SERVICE WORKER PARA PWA
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js')
-            .then(() => console.log('⚡ PWA Service Worker registrado con éxito'))
-            .catch(err => console.log('❌ Error al registrar SW:', err));
+        navigator.serviceWorker.register('/sw.js').catch(err => console.log(err));
     }
 
-    // Escuchar cambios en el selector de rango de tiempo
     document.querySelectorAll('input[name="cir-range"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
-            const labelText = e.target.nextElementSibling.innerText;
-            showToast(`📅 Rango cambiado a: ${labelText}`);
+            showToast(`📅 Rango cambiado a: ${e.target.nextElementSibling.innerText}`);
         });
     });
 });
 
-// Carga general de información
-async function loadAllData() {
-    const clients = await loadClients();
-    const products = await loadProducts();
-    updateDashboard(clients, products);
+// Comprobar si hay sesión activa
+function checkAuth() {
+    const token = localStorage.getItem('synkro_token');
+    const username = localStorage.getItem('synkro_user');
+
+    if (token) {
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('app-content').style.display = 'block';
+        document.getElementById('user-display').innerText = `👤 ${username}`;
+        loadAllData();
+    } else {
+        document.getElementById('login-screen').style.display = 'flex';
+        document.getElementById('app-content').style.display = 'none';
+    }
 }
 
-// Navegación por pestañas
+// Evento de Login
+document.getElementById('form-login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('login-user').value;
+    const password = document.getElementById('login-pass').value;
+
+    try {
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            localStorage.setItem('synkro_token', data.token);
+            localStorage.setItem('synkro_user', data.username);
+            showToast(`¡Bienvenido ${data.username}!`);
+            checkAuth();
+        } else {
+            alert(data.error || 'Credenciales incorrectas');
+        }
+    } catch (err) {
+        alert('Error al conectar con el servidor');
+    }
+});
+
+// Cerrar Sesión
+function logout() {
+    localStorage.removeItem('synkro_token');
+    localStorage.removeItem('synkro_user');
+    checkAuth();
+}
+
+// Función con Headers de Autenticación
+async function fetchAuth(url, options = {}) {
+    const token = localStorage.getItem('synkro_token');
+    options.headers = {
+        ...options.headers,
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+    };
+    const res = await fetch(url, options);
+    if (res.status === 401 || res.status === 403) {
+        logout();
+        throw new Error('Sesión expirada');
+    }
+    return res;
+}
+
+// Cargar todos los datos
+async function loadAllData() {
+    try {
+        const clients = await loadClients();
+        const products = await loadProducts();
+        updateDashboard(clients, products);
+    } catch (err) {
+        console.error(err);
+    }
+}
+
 function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(sec => sec.style.display = 'none');
-
     document.getElementById(`sec-${tab}`).style.display = 'block';
     event.target.classList.add('active');
 }
 
-// Cargar Clientes
 async function loadClients() {
-    const res = await fetch('/api/clients');
+    const res = await fetchAuth('/api/clients');
     const clients = await res.json();
     const tbody = document.getElementById('tbl-clientes');
     tbody.innerHTML = clients.map(c => `
@@ -53,9 +115,8 @@ async function loadClients() {
     return clients;
 }
 
-// Cargar Productos
 async function loadProducts() {
-    const res = await fetch('/api/products');
+    const res = await fetchAuth('/api/products');
     const products = await res.json();
     const tbody = document.getElementById('tbl-productos');
     
@@ -80,7 +141,6 @@ async function loadProducts() {
     return products;
 }
 
-// Actualizar Métricas y Gráficos
 function updateDashboard(clients, products) {
     document.getElementById('kpi-clientes').innerText = clients.length;
     
@@ -137,7 +197,6 @@ function updateDashboard(clients, products) {
     });
 }
 
-// Filtro en Tiempo Real
 function filterTable(tableId, query) {
     const term = query.toLowerCase();
     const rows = document.querySelectorAll(`#${tableId} tr`);
@@ -146,7 +205,6 @@ function filterTable(tableId, query) {
     });
 }
 
-// Exportar a CSV
 function exportTableToCSV(filename, tableId) {
     const rows = document.querySelectorAll(`#${tableId} tr`);
     let csv = [];
@@ -166,10 +224,9 @@ function exportTableToCSV(filename, tableId) {
     downloadLink.click();
 }
 
-// Eliminar Registros
 async function deleteClient(id) {
     if (confirm('¿Deseas eliminar este cliente?')) {
-        await fetch(`/api/clients/${id}`, { method: 'DELETE' });
+        await fetchAuth(`/api/clients/${id}`, { method: 'DELETE' });
         showToast('✅ Cliente eliminado');
         loadAllData();
     }
@@ -177,13 +234,12 @@ async function deleteClient(id) {
 
 async function deleteProduct(id) {
     if (confirm('¿Deseas eliminar este producto?')) {
-        await fetch(`/api/products/${id}`, { method: 'DELETE' });
+        await fetchAuth(`/api/products/${id}`, { method: 'DELETE' });
         showToast('✅ Producto eliminado');
         loadAllData();
     }
 }
 
-// Formulario Cliente
 document.getElementById('form-cliente').addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = {
@@ -193,19 +249,17 @@ document.getElementById('form-cliente').addEventListener('submit', async (e) => 
         city: document.getElementById('c-ciudad').value
     };
 
-    await fetch('/api/clients', {
+    await fetchAuth('/api/clients', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
     });
 
     closeModal('modal-cliente');
     e.target.reset();
-    showToast('✅ Cliente guardado con éxito');
+    showToast('✅ Cliente guardado');
     loadAllData();
 });
 
-// Formulario Producto
 document.getElementById('form-producto').addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = {
@@ -217,19 +271,17 @@ document.getElementById('form-producto').addEventListener('submit', async (e) =>
         stock_quantity: parseInt(document.getElementById('p-stock').value)
     };
 
-    await fetch('/api/products', {
+    await fetchAuth('/api/products', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
     });
 
     closeModal('modal-producto');
     e.target.reset();
-    showToast('✅ Producto guardado con éxito');
+    showToast('✅ Producto guardado');
     loadAllData();
 });
 
-// Modales y Toasts
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
