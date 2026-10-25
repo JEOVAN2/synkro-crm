@@ -281,3 +281,96 @@ tbody tr:hover {
 
 @keyframes fadein { from { bottom: 0; opacity: 0; } to { bottom: 30px; opacity: 1; } }
 @keyframes fadeout { from { bottom: 30px; opacity: 1; } to { bottom: 0; opacity: 0; } }
+
+/* ==========================================
+   ESTRUCTURA Y CENTRADO MÓVIL MEJORADO
+   ========================================== */
+@media (max-width: 768px) {
+    body {
+        padding: 12px !important;
+        overflow-x: hidden;
+    }
+
+    /* 1. Encabezado centrado */
+    header {
+        flex-direction: column !important;
+        text-align: center !important;
+        align-items: center !important;
+        gap: 10px !important;
+    }
+
+    header p {
+        font-size: 13px;
+    }
+
+    /* 2. Pestañas centradas */
+    .tabs {
+        justify-content: center !important;
+        gap: 8px !important;
+        width: 100%;
+    }
+
+    .tab-btn {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    /* 3. Selector de rango de tiempo centrado */
+    div[style*="justify-content: flex-end"] {
+        justify-content: center !important;
+    }
+
+    .cir-tabs {
+        margin: 0 auto;
+    }
+
+    /* 4. Tarjetas KPI apiladas a 1 sola columna */
+    .kpi-grid {
+        grid-template-columns: 1fr !important;
+        gap: 12px !important;
+    }
+
+    .kpi-card {
+        text-align: center !important;
+        padding: 16px !important;
+    }
+
+    /* 5. Gráficos apilados verticalmente a 1 sola columna */
+    .charts-grid {
+        grid-template-columns: 1fr !important;
+        gap: 16px !important;
+    }
+
+    .chart-box {
+        width: 100% !important;
+        box-sizing: border-box;
+        text-align: center !important;
+    }
+
+    /* 6. Barra de acciones y búsqueda centrada */
+    .action-bar {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 10px !important;
+    }
+
+    .action-bar input {
+        width: 100% !important;
+        text-align: center;
+    }
+
+    .action-bar div {
+        display: flex;
+        gap: 8px;
+    }
+
+    .action-bar button {
+        flex: 1;
+    }
+
+    /* 7. Modales adaptados */
+    .modal-content {
+        width: 92% !important;
+        padding: 20px !important;
+    }
+}
