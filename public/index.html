@@ -10,148 +10,156 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#FF5500">
     
-    <!-- Chart.js CDN para gráficos -->
+    <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <header style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-            <h1>⚡ Synkro CRM</h1>
-            <p>Gestión Integral de Equipamiento Fitness (Node.js + JavaScript + Neon DB)</p>
-        </div>
-        <div class="db-status">
-            <span class="status-dot"></span> Neon DB Activo
-        </div>
-    </header>
 
-    <!-- Pestañas de Navegación -->
-    <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
-        <button class="tab-btn" onclick="switchTab('clientes')">👥 Clientes</button>
-        <button class="tab-btn" onclick="switchTab('productos')">📦 Productos</button>
+    <!-- PANTALLA DE LOGIN (OVERLAY) -->
+    <div id="login-screen" class="modal" style="display: flex;">
+        <div class="modal-content" style="text-align: center;">
+            <h2>⚡ Synkro CRM</h2>
+            <p style="color: #A0A0A0; font-size: 14px; margin-bottom: 20px;">Ingresa tus credenciales para acceder</p>
+            <form id="form-login">
+                <div class="form-group" style="text-align: left;">
+                    <label>Usuario</label>
+                    <input type="text" id="login-user" required placeholder="admin">
+                </div>
+                <div class="form-group" style="text-align: left;">
+                    <label>Contraseña</label>
+                    <input type="password" id="login-pass" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn-primary" style="width: 100%; margin-top: 10px;">Iniciar Sesión</button>
+            </form>
+        </div>
     </div>
 
-    <!-- PESTAÑA 1: DASHBOARD -->
-    <section id="sec-dashboard" class="tab-content">
-        
-        <!-- Selector de Rango de Tiempo -->
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
-            <div class="cir-tabs" role="tablist" aria-label="Rango de tiempo">
-                <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-day" value="day" />
-                <label class="cir-tabs__t" for="cir-r-day" role="tab">Día</label>
-
-                <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-week" value="week" checked />
-                <label class="cir-tabs__t" for="cir-r-week" role="tab">Semana</label>
-
-                <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-month" value="month" />
-                <label class="cir-tabs__t" for="cir-r-month" role="tab">Mes</label>
-
-                <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-year" value="year" />
-                <label class="cir-tabs__t" for="cir-r-year" role="tab">Año</label>
-            </div>
-        </div>
-
-        <!-- Tarjetas de Métricas (KPIs) -->
-        <div class="kpi-grid">
-            <div class="kpi-card">
-                <span>Clientes Activos</span>
-                <h2 id="kpi-clientes">0</h2>
-            </div>
-            <div class="kpi-card">
-                <span>Stock Total de Equipos</span>
-                <h2 id="kpi-stock" style="color: #00E5FF;">0 Unids.</h2>
-            </div>
-            <div class="kpi-card">
-                <span>Valor del Inventario</span>
-                <h2 id="kpi-valor" style="color: #7C4DFF;">$0.00</h2>
-            </div>
-        </div>
-
-        <!-- Gráficos Interactivos -->
-        <div class="charts-grid">
-            <div class="chart-box">
-                <h3>📦 Inventario por Categoría</h3>
-                <canvas id="chart-categorias"></canvas>
-            </div>
-            <div class="chart-box">
-                <h3>🏙️ Clientes por Ciudad</h3>
-                <canvas id="chart-ciudades"></canvas>
-            </div>
-        </div>
-    </section>
-
-    <!-- PESTAÑA 2: CLIENTES -->
-    <section id="sec-clientes" class="tab-content" style="display: none;">
-        <div class="action-bar">
-            <input type="text" id="search-clients" placeholder="🔍 Buscar por nombre o ciudad..." oninput="filterTable('tbl-clientes', this.value)">
+    <!-- CONTENIDO DE LA APLICACIÓN -->
+    <div id="app-content" style="display: none;">
+        <header style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-                <button class="btn-secondary" onclick="exportTableToCSV('clientes.csv', 'tbl-clientes')">📥 Exportar CSV</button>
-                <button class="btn-primary" onclick="openModal('modal-cliente')">➕ Nuevo Cliente</button>
+                <h1>⚡ Synkro CRM</h1>
+                <p>Gestión Integral de Equipamiento Fitness</p>
             </div>
-        </div>
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Gimnasio / Negocio</th>
-                        <th>Contacto</th>
-                        <th>Teléfono</th>
-                        <th>Ciudad</th>
-                        <th>Acción</th>
-                    </tr>
-                </thead>
-                <tbody id="tbl-clientes"></tbody>
-            </table>
-        </div>
-    </section>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span id="user-display" style="font-size: 14px; font-weight: bold; color: #FF5500;"></span>
+                <button onclick="logout()" class="btn-danger" style="padding: 6px 12px;">🚪 Salir</button>
+            </div>
+        </header>
 
-    <!-- PESTAÑA 3: PRODUCTOS -->
-    <section id="sec-productos" class="tab-content" style="display: none;">
-        <div class="action-bar">
-            <input type="text" id="search-products" placeholder="🔍 Buscar por SKU, nombre o marca..." oninput="filterTable('tbl-productos', this.value)">
-            <div>
-                <button class="btn-secondary" onclick="exportTableToCSV('productos.csv', 'tbl-productos')">📥 Exportar CSV</button>
-                <button class="btn-primary" onclick="openModal('modal-producto')">➕ Nuevo Producto</button>
+        <!-- Pestañas de Navegación -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+            <button class="tab-btn" onclick="switchTab('clientes')">👥 Clientes</button>
+            <button class="tab-btn" onclick="switchTab('productos')">📦 Productos</button>
+        </div>
+
+        <!-- PESTAÑA 1: DASHBOARD -->
+        <section id="sec-dashboard" class="tab-content">
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+                <div class="cir-tabs" role="tablist" aria-label="Rango de tiempo">
+                    <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-day" value="day" />
+                    <label class="cir-tabs__t" for="cir-r-day" role="tab">Día</label>
+
+                    <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-week" value="week" checked />
+                    <label class="cir-tabs__t" for="cir-r-week" role="tab">Semana</label>
+
+                    <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-month" value="month" />
+                    <label class="cir-tabs__t" for="cir-r-month" role="tab">Mes</label>
+
+                    <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-year" value="year" />
+                    <label class="cir-tabs__t" for="cir-r-year" role="tab">Año</label>
+                </div>
             </div>
-        </div>
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>SKU</th>
-                        <th>Nombre</th>
-                        <th>Categoría</th>
-                        <th>Precio</th>
-                        <th>Stock</th>
-                        <th>Acción</th>
-                    </tr>
-                </thead>
-                <tbody id="tbl-productos"></tbody>
-            </table>
-        </div>
-    </section>
+
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <span>Clientes Activos</span>
+                    <h2 id="kpi-clientes">0</h2>
+                </div>
+                <div class="kpi-card">
+                    <span>Stock Total de Equipos</span>
+                    <h2 id="kpi-stock" style="color: #00E5FF;">0 Unids.</h2>
+                </div>
+                <div class="kpi-card">
+                    <span>Valor del Inventario</span>
+                    <h2 id="kpi-valor" style="color: #7C4DFF;">$0.00</h2>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-box">
+                    <h3>📦 Inventario por Categoría</h3>
+                    <canvas id="chart-categorias"></canvas>
+                </div>
+                <div class="chart-box">
+                    <h3>🏙️ Clientes por Ciudad</h3>
+                    <canvas id="chart-ciudades"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- PESTAÑA 2: CLIENTES -->
+        <section id="sec-clientes" class="tab-content" style="display: none;">
+            <div class="action-bar">
+                <input type="text" id="search-clients" placeholder="🔍 Buscar por nombre o ciudad..." oninput="filterTable('tbl-clientes', this.value)">
+                <div>
+                    <button class="btn-secondary" onclick="exportTableToCSV('clientes.csv', 'tbl-clientes')">📥 Exportar CSV</button>
+                    <button class="btn-primary" onclick="openModal('modal-cliente')">➕ Nuevo Cliente</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Gimnasio / Negocio</th>
+                            <th>Contacto</th>
+                            <th>Teléfono</th>
+                            <th>Ciudad</th>
+                            <th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbl-clientes"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- PESTAÑA 3: PRODUCTOS -->
+        <section id="sec-productos" class="tab-content" style="display: none;">
+            <div class="action-bar">
+                <input type="text" id="search-products" placeholder="🔍 Buscar por SKU, nombre o marca..." oninput="filterTable('tbl-productos', this.value)">
+                <div>
+                    <button class="btn-secondary" onclick="exportTableToCSV('productos.csv', 'tbl-productos')">📥 Exportar CSV</button>
+                    <button class="btn-primary" onclick="openModal('modal-producto')">➕ Nuevo Producto</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>SKU</th>
+                            <th>Nombre</th>
+                            <th>Categoría</th>
+                            <th>Precio</th>
+                            <th>Stock</th>
+                            <th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbl-productos"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
 
     <!-- MODAL REGISTRO CLIENTE -->
     <div id="modal-cliente" class="modal">
         <div class="modal-content">
             <h3>➕ Registrar Cliente</h3>
             <form id="form-cliente">
-                <div class="form-group">
-                    <label>Nombre del Negocio *</label>
-                    <input type="text" id="c-negocio" required>
-                </div>
-                <div class="form-group">
-                    <label>Contacto</label>
-                    <input type="text" id="c-contacto">
-                </div>
-                <div class="form-group">
-                    <label>Teléfono</label>
-                    <input type="text" id="c-telefono">
-                </div>
-                <div class="form-group">
-                    <label>Ciudad</label>
-                    <input type="text" id="c-ciudad">
-                </div>
+                <div class="form-group"><label>Nombre del Negocio *</label><input type="text" id="c-negocio" required></div>
+                <div class="form-group"><label>Contacto</label><input type="text" id="c-contacto"></div>
+                <div class="form-group"><label>Teléfono</label><input type="text" id="c-telefono"></div>
+                <div class="form-group"><label>Ciudad</label><input type="text" id="c-ciudad"></div>
                 <button type="submit" class="btn-primary" style="width: 100%;">Guardar en Neon</button>
                 <button type="button" onclick="closeModal('modal-cliente')" style="width: 100%; margin-top: 8px; background: none; border: none; color: #aaa; cursor: pointer;">Cancelar</button>
             </form>
@@ -163,14 +171,8 @@
         <div class="modal-content">
             <h3>📦 Registrar Producto</h3>
             <form id="form-producto">
-                <div class="form-group">
-                    <label>Código SKU *</label>
-                    <input type="text" id="p-sku" required>
-                </div>
-                <div class="form-group">
-                    <label>Nombre del Producto *</label>
-                    <input type="text" id="p-nombre" required>
-                </div>
+                <div class="form-group"><label>Código SKU *</label><input type="text" id="p-sku" required></div>
+                <div class="form-group"><label>Nombre del Producto *</label><input type="text" id="p-nombre" required></div>
                 <div class="form-group">
                     <label>Categoría</label>
                     <select id="p-categoria">
@@ -181,27 +183,16 @@
                         <option value="accesorios">Accesorios</option>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label>Marca</label>
-                    <input type="text" id="p-marca">
-                </div>
-                <div class="form-group">
-                    <label>Precio ($)</label>
-                    <input type="number" step="0.01" id="p-precio" required>
-                </div>
-                <div class="form-group">
-                    <label>Stock Disponible</label>
-                    <input type="number" id="p-stock" required>
-                </div>
+                <div class="form-group"><label>Marca</label><input type="text" id="p-marca"></div>
+                <div class="form-group"><label>Precio ($)</label><input type="number" step="0.01" id="p-precio" required></div>
+                <div class="form-group"><label>Stock Disponible</label><input type="number" id="p-stock" required></div>
                 <button type="submit" class="btn-primary" style="width: 100%;">Guardar Producto</button>
                 <button type="button" onclick="closeModal('modal-producto')" style="width: 100%; margin-top: 8px; background: none; border: none; color: #aaa; cursor: pointer;">Cancelar</button>
             </form>
         </div>
     </div>
 
-    <!-- NOTIFICACIÓN TOAST -->
     <div id="toast" class="toast"></div>
-
     <script src="app.js"></script>
 </body>
 </html>
