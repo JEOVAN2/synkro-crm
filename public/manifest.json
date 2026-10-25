@@ -1,0 +1,18 @@
+{
+  "name": "Synkro CRM",
+  "short_name": "Synkro",
+  "description": "Gestión Integral de Equipamiento Fitness",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0E1117",
+  "theme_color": "#FF5500",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1256/1256650.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
