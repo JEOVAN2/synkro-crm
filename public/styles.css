@@ -156,7 +156,7 @@ table th { position: sticky; top: 0; background-color: var(--bg-card); color: va
 .btn-secondary { background-color: #2E323D; color: white; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: bold; }
 .btn-danger { background-color: transparent; color: var(--danger); border: 1px solid var(--danger); padding: 4px 10px; border-radius: 4px; cursor: pointer; }
 
-/* BOTÓN Y PANEL DESPLEGABLE DE NOTIFICACIONES */
+/* BOTÓN DE NOTIFICACIONES Y PANEL CORREGIDO */
 .btn-notif {
   width: 40px;
   height: 40px;
@@ -207,37 +207,40 @@ table th { position: sticky; top: 0; background-color: var(--bg-card); color: va
     position: absolute;
     top: 48px;
     left: 0;
-    width: 280px;
+    width: 300px;
+    max-width: 85vw;
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-    z-index: 200;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+    z-index: 1000;
     overflow: hidden;
 }
 
 .notif-header {
-    padding: 10px 14px;
-    background: rgba(255, 85, 0, 0.1);
+    padding: 12px 16px;
+    background: rgba(255, 85, 0, 0.12);
     border-bottom: 1px solid var(--border);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--primary);
     text-align: left;
+    white-space: nowrap;
 }
 
 .notif-list {
-    padding: 10px;
-    max-height: 260px;
+    padding: 12px;
+    max-height: 280px;
     overflow-y: auto;
 }
 
 .notif-item {
-    background: var(--bg-main);
-    padding: 10px;
-    border-radius: 6px;
-    border-left: 3px solid var(--danger);
-    margin-bottom: 8px;
-    font-size: 12px;
+    background: rgba(255, 59, 48, 0.08);
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 4px solid var(--danger);
+    margin-bottom: 10px;
+    font-size: 13px;
+    line-height: 1.4;
     text-align: left;
     color: var(--text-main);
 }
@@ -245,7 +248,8 @@ table th { position: sticky; top: 0; background-color: var(--bg-card); color: va
 .notif-item strong {
     color: var(--danger);
     display: block;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
+    font-size: 13px;
 }
 
 /* Modales */
@@ -259,7 +263,7 @@ table th { position: sticky; top: 0; background-color: var(--bg-card); color: va
 .toast { visibility: hidden; min-width: 250px; background-color: var(--primary); color: #fff; text-align: center; border-radius: 6px; padding: 14px; position: fixed; z-index: 200; right: 30px; bottom: 30px; font-weight: bold; }
 .toast.show { visibility: visible; }
 
-/* ADAPTACIÓN MÓVIL */
+/* ADAPTACIÓN MÓVIL CORREGIDA */
 @media (max-width: 768px) {
     body { padding: 12px !important; overflow-x: hidden; }
     header { flex-direction: column !important; text-align: center !important; align-items: center !important; gap: 10px !important; }
@@ -276,7 +280,13 @@ table th { position: sticky; top: 0; background-color: var(--bg-card); color: va
     .action-bar div { display: flex; gap: 8px; }
     .action-bar button { flex: 1; }
     .modal-content { width: 92% !important; padding: 20px !important; }
-    .notif-dropdown { left: -100px; width: 260px; }
+    
+    /* Alineación perfecta en celular */
+    .notif-dropdown {
+        left: -5px;
+        width: 290px;
+        max-width: 85vw;
+    }
 }
 
 /* ESTILOS DE IMPRESIÓN */
