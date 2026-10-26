@@ -1,5 +1,6 @@
 let chartCatInstance = null;
 let chartCityInstance = null;
+let allProductsCache = [];
 
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
@@ -15,7 +16,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Comprobar si hay sesión activa
 function checkAuth() {
     const token = localStorage.getItem('synkro_token');
     const username = localStorage.getItem('synkro_user');
@@ -31,7 +31,6 @@ function checkAuth() {
     }
 }
 
-// Evento de Login
 document.getElementById('form-login').addEventListener('submit', async (e) => {
     e.preventDefault();
     const username = document.getElementById('login-user').value;
@@ -58,14 +57,12 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
     }
 });
 
-// Cerrar Sesión
 function logout() {
     localStorage.removeItem('synkro_token');
     localStorage.removeItem('synkro_user');
     checkAuth();
 }
 
-// Función con Headers de Autenticación
 async function fetchAuth(url, options = {}) {
     const token = localStorage.getItem('synkro_token');
     options.headers = {
@@ -81,15 +78,22 @@ async function fetchAuth(url, options = {}) {
     return res;
 }
 
-// Cargar todos los datos
 async function loadAllData() {
     try {
         const clients = await loadClients();
         const products = await loadProducts();
         updateDashboard(clients, products);
+        updateSyncTimestamp();
     } catch (err) {
         console.error(err);
     }
+}
+
+function updateSyncTimestamp() {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const syncEl = document.getElementById('last-sync-time');
+    if (syncEl) syncEl.innerText = `⏱️ Sincronizado: ${timeStr}`;
 }
 
 function switchTab(tab) {
@@ -118,8 +122,13 @@ async function loadClients() {
 async function loadProducts() {
     const res = await fetchAuth('/api/products');
     const products = await res.json();
+    allProductsCache = products;
+    renderProductsTable(products);
+    return products;
+}
+
+function renderProductsTable(products) {
     const tbody = document.getElementById('tbl-productos');
-    
     tbody.innerHTML = products.map(p => {
         const isLowStock = parseInt(p.stock_quantity) <= 5;
         const stockClass = isLowStock ? 'stock-low' : 'stock-ok';
@@ -138,7 +147,23 @@ async function loadProducts() {
             </tr>
         `;
     }).join('');
-    return products;
+}
+
+function applyProductFilters() {
+    const textQuery = document.getElementById('search-products').value.toLowerCase();
+    const catQuery = document.getElementById('filter-category').value;
+
+    const filtered = allProductsCache.filter(p => {
+        const matchesText = (p.sku && p.sku.toLowerCase().includes(textQuery)) ||
+                            (p.name && p.name.toLowerCase().includes(textQuery)) ||
+                            (p.brand && p.brand.toLowerCase().includes(textQuery));
+        
+        const matchesCat = (catQuery === 'all') || (p.category && p.category.toLowerCase() === catQuery.toLowerCase());
+
+        return matchesText && matchesCat;
+    });
+
+    renderProductsTable(filtered);
 }
 
 function updateDashboard(clients, products) {
@@ -149,6 +174,16 @@ function updateDashboard(clients, products) {
 
     const totalValue = products.reduce((acc, p) => acc + ((parseFloat(p.price) || 0) * (parseInt(p.stock_quantity) || 0)), 0);
     document.getElementById('kpi-valor').innerText = `$${totalValue.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+
+    // BANNER ALERTA DE STOCK BAJO
+    const lowStockItems = products.filter(p => parseInt(p.stock_quantity) <= 5);
+    const alertBanner = document.getElementById('stock-alert-banner');
+    if (lowStockItems.length > 0) {
+        alertBanner.style.display = 'block';
+        alertBanner.innerHTML = `⚠️ <strong>ALERTA DE INVENTARIO:</strong> Tienes <strong>${lowStockItems.length} producto(s)</strong> con stock crítico (5 o menos unidades).`;
+    } else {
+        alertBanner.style.display = 'none';
+    }
 
     const catMap = {};
     products.forEach(p => {
