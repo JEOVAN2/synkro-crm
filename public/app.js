@@ -4,7 +4,7 @@ let allProductsCache = [];
 let allClientsCache = [];
 let currentRange = 'week';
 
-// Datos de métricas ajustados dinámicamente por rango temporal (Día, Semana, Mes, Año)
+// Métricas por rango de tiempo (Día, Semana, Mes, Año)
 const rangeMetrics = {
     day: {
         labels: ['08:00 AM', '11:00 AM', '02:00 PM', '05:00 PM', '08:00 PM'],
@@ -35,17 +35,30 @@ document.addEventListener('DOMContentLoaded', () => {
         navigator.serviceWorker.register('/sw.js').catch(err => console.log(err));
     }
 
-    // Escuchar el selector de rango temporal (Día, Semana, Mes, Año)
+    // Selector de Rango Temporal
     document.querySelectorAll('input[name="cir-range"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
             currentRange = e.target.value;
             const labelText = e.target.nextElementSibling.innerText;
             showToast(`📅 Vistas actualizadas a: ${labelText}`);
-            
-            // Recargar Dashboard manteniendo datos locales
             updateDashboard(allClientsCache, allProductsCache);
         });
     });
+});
+
+// Desplegar / Ocultar Panel de Notificaciones
+function toggleNotifDropdown() {
+    const dropdown = document.getElementById('notif-dropdown');
+    dropdown.style.display = (dropdown.style.display === 'none' || !dropdown.style.display) ? 'block' : 'none';
+}
+
+// Cerrar el panel al hacer clic en cualquier parte fuera de la campana
+document.addEventListener('click', (e) => {
+    const notifBtn = document.querySelector('.btn-notif');
+    const dropdown = document.getElementById('notif-dropdown');
+    if (notifBtn && dropdown && !notifBtn.parentElement.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
 });
 
 function checkAuth() {
@@ -203,7 +216,7 @@ function applyProductFilters() {
 function updateDashboard(clients, products) {
     const metrics = rangeMetrics[currentRange] || rangeMetrics.week;
 
-    // Actualización de KPIs
+    // KPIs
     document.getElementById('kpi-clientes').innerText = clients.length;
     
     const totalStock = products.reduce((acc, p) => acc + (parseInt(p.stock_quantity) || 0), 0);
@@ -212,14 +225,24 @@ function updateDashboard(clients, products) {
     const totalValue = products.reduce((acc, p) => acc + ((parseFloat(p.price) || 0) * (parseInt(p.stock_quantity) || 0)), 0);
     document.getElementById('kpi-valor').innerText = `$${totalValue.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
-    // Banner de alerta de inventario crítico
+    // ENVIAR ALERTAS EXCLUSIVAMENTE AL PANEL DE NOTIFICACIONES (CAMPANA)
     const lowStockItems = products.filter(p => parseInt(p.stock_quantity) <= 5);
-    const alertBanner = document.getElementById('stock-alert-banner');
+    const badge = document.getElementById('notif-badge');
+    const notifList = document.getElementById('notif-list');
+
     if (lowStockItems.length > 0) {
-        alertBanner.style.display = 'block';
-        alertBanner.innerHTML = `⚠️ <strong>ALERTA DE INVENTARIO:</strong> Tienes <strong>${lowStockItems.length} producto(s)</strong> con stock crítico.`;
+        badge.style.display = 'inline-block';
+        badge.innerText = lowStockItems.length;
+
+        notifList.innerHTML = lowStockItems.map(p => `
+            <div class="notif-item">
+                <strong>⚠️ Alerta de Inventario Crítico</strong>
+                El producto <b>${p.name}</b> (${p.sku}) cuenta con únicamente <b>${p.stock_quantity} unidad(es)</b> en stock.
+            </div>
+        `).join('');
     } else {
-        alertBanner.style.display = 'none';
+        badge.style.display = 'none';
+        notifList.innerHTML = '<p style="color: #A0A0A0; font-size: 13px; margin: 10px 0; text-align: center;">Sin notificaciones pendientes</p>';
     }
 
     // 1. Gráfico Doughnut: Categorías
@@ -243,7 +266,7 @@ function updateDashboard(clients, products) {
         options: { plugins: { legend: { labels: { color: '#FAFAFA' } } } }
     });
 
-    // 2. Gráfico de Barras: Dinámico por Rango Activo (Día, Semana, Mes, Año)
+    // 2. Gráfico de Barras: Dinámico por Rango Activo
     if (chartCityInstance) chartCityInstance.destroy();
     const ctxCity = document.getElementById('chart-ciudades').getContext('2d');
     chartCityInstance = new Chart(ctxCity, {
