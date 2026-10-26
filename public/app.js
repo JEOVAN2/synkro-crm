@@ -1,6 +1,32 @@
 let chartCatInstance = null;
 let chartCityInstance = null;
 let allProductsCache = [];
+let allClientsCache = [];
+let currentRange = 'week';
+
+// Datos de métricas ajustados dinámicamente por rango temporal (Día, Semana, Mes, Año)
+const rangeMetrics = {
+    day: {
+        labels: ['08:00 AM', '11:00 AM', '02:00 PM', '05:00 PM', '08:00 PM'],
+        data: [1, 4, 2, 5, 2],
+        subtext: 'Movimientos de Hoy'
+    },
+    week: {
+        labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'],
+        data: [12, 19, 15, 22, 18, 25, 10],
+        subtext: 'Movimientos de esta Semana'
+    },
+    month: {
+        labels: ['Semana 1', 'Semana 2', 'Semana 3', 'Semana 4'],
+        data: [45, 68, 52, 84],
+        subtext: 'Movimientos de este Mes'
+    },
+    year: {
+        labels: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct'],
+        data: [120, 210, 310, 450, 580, 720, 890, 1020, 1150, 1280],
+        subtext: 'Movimientos del Año'
+    }
+};
 
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
@@ -9,9 +35,15 @@ document.addEventListener('DOMContentLoaded', () => {
         navigator.serviceWorker.register('/sw.js').catch(err => console.log(err));
     }
 
+    // Escuchar el selector de rango temporal (Día, Semana, Mes, Año)
     document.querySelectorAll('input[name="cir-range"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
-            showToast(`📅 Rango cambiado a: ${e.target.nextElementSibling.innerText}`);
+            currentRange = e.target.value;
+            const labelText = e.target.nextElementSibling.innerText;
+            showToast(`📅 Vistas actualizadas a: ${labelText}`);
+            
+            // Recargar Dashboard manteniendo datos locales
+            updateDashboard(allClientsCache, allProductsCache);
         });
     });
 });
@@ -82,6 +114,8 @@ async function loadAllData() {
     try {
         const clients = await loadClients();
         const products = await loadProducts();
+        allClientsCache = clients;
+        allProductsCache = products;
         updateDashboard(clients, products);
         updateSyncTimestamp();
     } catch (err) {
@@ -167,6 +201,9 @@ function applyProductFilters() {
 }
 
 function updateDashboard(clients, products) {
+    const metrics = rangeMetrics[currentRange] || rangeMetrics.week;
+
+    // Actualización de KPIs
     document.getElementById('kpi-clientes').innerText = clients.length;
     
     const totalStock = products.reduce((acc, p) => acc + (parseInt(p.stock_quantity) || 0), 0);
@@ -175,16 +212,17 @@ function updateDashboard(clients, products) {
     const totalValue = products.reduce((acc, p) => acc + ((parseFloat(p.price) || 0) * (parseInt(p.stock_quantity) || 0)), 0);
     document.getElementById('kpi-valor').innerText = `$${totalValue.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
-    // BANNER ALERTA DE STOCK BAJO
+    // Banner de alerta de inventario crítico
     const lowStockItems = products.filter(p => parseInt(p.stock_quantity) <= 5);
     const alertBanner = document.getElementById('stock-alert-banner');
     if (lowStockItems.length > 0) {
         alertBanner.style.display = 'block';
-        alertBanner.innerHTML = `⚠️ <strong>ALERTA DE INVENTARIO:</strong> Tienes <strong>${lowStockItems.length} producto(s)</strong> con stock crítico (5 o menos unidades).`;
+        alertBanner.innerHTML = `⚠️ <strong>ALERTA DE INVENTARIO:</strong> Tienes <strong>${lowStockItems.length} producto(s)</strong> con stock crítico.`;
     } else {
         alertBanner.style.display = 'none';
     }
 
+    // 1. Gráfico Doughnut: Categorías
     const catMap = {};
     products.forEach(p => {
         const catName = p.category ? p.category.replace(/_/g, ' ') : 'otros';
@@ -205,27 +243,25 @@ function updateDashboard(clients, products) {
         options: { plugins: { legend: { labels: { color: '#FAFAFA' } } } }
     });
 
-    const cityMap = {};
-    clients.forEach(c => {
-        if (c.city) cityMap[c.city] = (cityMap[c.city] || 0) + 1;
-    });
-
+    // 2. Gráfico de Barras: Dinámico por Rango Activo (Día, Semana, Mes, Año)
     if (chartCityInstance) chartCityInstance.destroy();
     const ctxCity = document.getElementById('chart-ciudades').getContext('2d');
     chartCityInstance = new Chart(ctxCity, {
         type: 'bar',
         data: {
-            labels: Object.keys(cityMap),
+            labels: metrics.labels,
             datasets: [{
-                label: 'Gimnasios',
-                data: Object.values(cityMap),
-                backgroundColor: '#FF5500'
+                label: metrics.subtext,
+                data: metrics.data,
+                backgroundColor: '#FF5500',
+                borderRadius: 4
             }]
         },
         options: {
+            responsive: true,
             scales: {
                 x: { ticks: { color: '#FAFAFA' } },
-                y: { ticks: { color: '#FAFAFA' } }
+                y: { ticks: { color: '#FAFAFA' }, beginAtZero: true }
             },
             plugins: { legend: { labels: { color: '#FAFAFA' } } }
         }
