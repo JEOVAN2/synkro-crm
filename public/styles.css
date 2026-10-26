@@ -374,3 +374,50 @@ tbody tr:hover {
         padding: 20px !important;
     }
 }
+/* ==========================================
+   ESTILOS DE IMPRESIÓN Y EXPORTACIÓN A PDF
+   ========================================== */
+@media print {
+    header, .tabs, .action-bar, .btn-primary, .btn-secondary, .btn-danger, #login-screen, .cir-tabs, #stock-alert-banner {
+        display: none !important;
+    }
+
+    body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        padding: 0 !important;
+    }
+
+    .table-container {
+        max-height: none !important;
+        border: none !important;
+        background: transparent !important;
+        overflow: visible !important;
+    }
+
+    table {
+        width: 100% !important;
+        color: #000000 !important;
+    }
+
+    th, td {
+        border-bottom: 1px solid #ddd !important;
+        color: #000000 !important;
+    }
+
+    table th {
+        background-color: #f0f0f0 !important;
+        color: #000000 !important;
+    }
+
+    .badge {
+        border: 1px solid #333 !important;
+        color: #000 !important;
+        background: none !important;
+    }
+
+    .stock-badge {
+        background: none !important;
+        color: #000 !important;
+    }
+}
