@@ -421,3 +421,55 @@ tbody tr:hover {
         color: #000 !important;
     }
 }
+/* ==========================================
+   BOTÓN DE NOTIFICACIONES ANIMADO
+   ========================================== */
+.btn-notif {
+  width: 40px;
+  height: 40px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.btn-notif .bell {
+  width: 18px;
+}
+
+.btn-notif .bell path {
+  fill: var(--text-main);
+  transition: fill 0.3s ease;
+}
+
+.btn-notif:hover {
+  background-color: #2E323D;
+  border-color: var(--primary);
+}
+
+.btn-notif:hover .bell path {
+  fill: var(--primary);
+}
+
+.btn-notif:hover .bell {
+  animation: bellRing 0.9s both;
+}
+
+@keyframes bellRing {
+  0%, 100% { transform-origin: top; }
+  15% { transform: rotateZ(10deg); }
+  30% { transform: rotateZ(-10deg); }
+  45% { transform: rotateZ(5deg); }
+  60% { transform: rotateZ(-5deg); }
+  75% { transform: rotateZ(2deg); }
+}
+
+.btn-notif:active {
+  transform: scale(0.9);
+}
