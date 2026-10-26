@@ -36,12 +36,13 @@
 
     <!-- CONTENIDO DE LA APLICACIÓN -->
     <div id="app-content" style="display: none;">
-        <header style="display: flex; justify-content: space-between; align-items: center;">
+        <header style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
                 <h1>⚡ Synkro CRM</h1>
                 <p>Gestión Integral de Equipamiento Fitness</p>
             </div>
-            <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span id="last-sync-time" style="font-size: 12px; color: #A0A0A0; background: #1A1C23; padding: 6px 12px; border-radius: 20px; border: 1px solid #2E323D;">⏱️ Sincronizando...</span>
                 <span id="user-display" style="font-size: 14px; font-weight: bold; color: #FF5500;"></span>
                 <button onclick="logout()" class="btn-danger" style="padding: 6px 12px;">🚪 Salir</button>
             </div>
@@ -56,6 +57,10 @@
 
         <!-- PESTAÑA 1: DASHBOARD -->
         <section id="sec-dashboard" class="tab-content">
+            <!-- BANNER DE ALERTA STOCK BAJO -->
+            <div id="stock-alert-banner" style="display: none; background: rgba(255, 59, 48, 0.15); border: 1px solid #FF3B30; color: #FF3B30; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; text-align: center;">
+            </div>
+
             <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
                 <div class="cir-tabs" role="tablist" aria-label="Rango de tiempo">
                     <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-day" value="day" />
@@ -103,7 +108,8 @@
         <section id="sec-clientes" class="tab-content" style="display: none;">
             <div class="action-bar">
                 <input type="text" id="search-clients" placeholder="🔍 Buscar por nombre o ciudad..." oninput="filterTable('tbl-clientes', this.value)">
-                <div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-secondary" onclick="window.print()">🖨️ PDF / Imprimir</button>
                     <button class="btn-secondary" onclick="exportTableToCSV('clientes.csv', 'tbl-clientes')">📥 Exportar CSV</button>
                     <button class="btn-primary" onclick="openModal('modal-cliente')">➕ Nuevo Cliente</button>
                 </div>
@@ -126,9 +132,20 @@
 
         <!-- PESTAÑA 3: PRODUCTOS -->
         <section id="sec-productos" class="tab-content" style="display: none;">
-            <div class="action-bar">
-                <input type="text" id="search-products" placeholder="🔍 Buscar por SKU, nombre o marca..." oninput="filterTable('tbl-productos', this.value)">
-                <div>
+            <div class="action-bar" style="flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; gap: 8px; flex: 1; min-width: 280px;">
+                    <input type="text" id="search-products" placeholder="🔍 Buscar por SKU o nombre..." oninput="applyProductFilters()" style="flex: 1;">
+                    <select id="filter-category" onchange="applyProductFilters()" style="padding: 10px; background: var(--bg-card); border: 1px solid var(--border); color: white; border-radius: 6px;">
+                        <option value="all">Todas las Categorías</option>
+                        <option value="peso_libre">Peso Libre</option>
+                        <option value="cardio">Cardio</option>
+                        <option value="fuerza_guiada">Fuerza Guiada</option>
+                        <option value="racks_jaulas">Racks / Jaulas</option>
+                        <option value="accesorios">Accesorios</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-secondary" onclick="window.print()">🖨️ PDF / Imprimir</button>
                     <button class="btn-secondary" onclick="exportTableToCSV('productos.csv', 'tbl-productos')">📥 Exportar CSV</button>
                     <button class="btn-primary" onclick="openModal('modal-producto')">➕ Nuevo Producto</button>
                 </div>
