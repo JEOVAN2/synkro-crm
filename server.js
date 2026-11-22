@@ -138,6 +138,48 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// NUEVA RUTA: Escáner QR/Barras - Validación DFA y descuento atómico de 1 unidad
+app.patch('/api/products/:sku/decrement', authenticateToken, async (req, res) => {
+    const sku = (req.params.sku || '').trim().toUpperCase();
+
+    // Validación Léxica / Autómata Finito Determinista (DFA)
+    const skuRegex = /^[A-Z]{3,4}-[A-Z0-9]{3,6}-\d{2}$/;
+    if (!skuRegex.test(sku)) {
+        return res.status(400).json({
+            error: `Código "${sku}" rechazado por el analizador léxico (formato esperado: XXX-XXX-00).`
+        });
+    }
+
+    try {
+        const result = await db.query(
+            `UPDATE products
+             SET stock_quantity = stock_quantity - 1
+             WHERE sku = $1 AND stock_quantity > 0
+             RETURNING id, sku, name, category, brand, price, stock_quantity`,
+            [sku]
+        );
+
+        if (result.rowCount === 0) {
+            const check = await db.query('SELECT stock_quantity FROM products WHERE sku = $1', [sku]);
+            if (check.rowCount === 0) {
+                return res.status(404).json({ error: `El SKU ${sku} no está registrado en el catálogo.` });
+            }
+            return res.status(409).json({ error: `Sin existencias disponibles para ${sku} (Stock: 0).` });
+        }
+
+        const updatedProduct = result.rows[0];
+
+        res.json({
+            message: `Salida registrada: -1 unidad de ${updatedProduct.name}`,
+            product: updatedProduct,
+            low_stock_alert: updatedProduct.stock_quantity <= 5
+        });
+    } catch (err) {
+        console.error('Error al descontar SKU escaneado:', err);
+        res.status(500).json({ error: 'Error interno al actualizar el inventario en Neon DB.' });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`🚀 Servidor Synkro activo en puerto ${PORT}`);
 });
