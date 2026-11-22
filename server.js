@@ -118,10 +118,11 @@ app.get('/api/products', authenticateToken, async (req, res) => {
 
 app.post('/api/products', authenticateToken, async (req, res) => {
     const { sku, name, category, brand, price, stock_quantity } = req.body;
+    const cleanSku = (sku || '').trim().toUpperCase();
     try {
         const result = await db.query(
             'INSERT INTO products (sku, name, category, brand, price, stock_quantity) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-            [sku, name, category, brand, price, stock_quantity]
+            [cleanSku, name, category, brand, price, stock_quantity]
         );
         res.json(result.rows[0]);
     } catch (err) {
@@ -138,15 +139,15 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// NUEVA RUTA: Escáner QR/Barras - Validación DFA y descuento atómico de 1 unidad
+// Escáner QR/Barras - Validación DFA (SKU interno o EAN/UPC) y descuento atómico
 app.patch('/api/products/:sku/decrement', authenticateToken, async (req, res) => {
     const sku = (req.params.sku || '').trim().toUpperCase();
 
     // Validación Léxica / Autómata Finito Determinista (DFA)
-    const skuRegex = /^[A-Z]{3,4}-[A-Z0-9]{3,6}-\d{2}$/;
+    const skuRegex = /^([A-Z]{3,4}-[A-Z0-9]{3,6}-\d{2}|\d{8,14})$/;
     if (!skuRegex.test(sku)) {
         return res.status(400).json({
-            error: `Código "${sku}" rechazado por el analizador léxico (formato esperado: XXX-XXX-00).`
+            error: `Código "${sku}" rechazado por el analizador léxico (formato esperado: XXX-XXX-00 o código de barras EAN/UPC).`
         });
     }
 
@@ -162,7 +163,7 @@ app.patch('/api/products/:sku/decrement', authenticateToken, async (req, res) =>
         if (result.rowCount === 0) {
             const check = await db.query('SELECT stock_quantity FROM products WHERE sku = $1', [sku]);
             if (check.rowCount === 0) {
-                return res.status(404).json({ error: `El SKU ${sku} no está registrado en el catálogo.` });
+                return res.status(404).json({ error: `El código ${sku} no está registrado en el catálogo.` });
             }
             return res.status(409).json({ error: `Sin existencias disponibles para ${sku} (Stock: 0).` });
         }
@@ -175,7 +176,7 @@ app.patch('/api/products/:sku/decrement', authenticateToken, async (req, res) =>
             low_stock_alert: updatedProduct.stock_quantity <= 5
         });
     } catch (err) {
-        console.error('Error al descontar SKU escaneado:', err);
+        console.error('Error al descontar código escaneado:', err);
         res.status(500).json({ error: 'Error interno al actualizar el inventario en Neon DB.' });
     }
 });
