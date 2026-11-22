@@ -385,3 +385,105 @@ function showToast(msg) {
     toast.className = 'toast show';
     setTimeout(() => { toast.className = toast.className.replace('show', ''); }, 3000);
 }
+
+// =========================================================
+// MÓDULO ESCÁNER DE SKU (html5-qrcode + Autómata DFA)
+// =========================================================
+let html5QrCode = null;
+let scanCooldown = false;
+const SKU_DFA_REGEX = /^[A-Z]{3,4}-[A-Z0-9]{3,6}-\d{2}$/;
+
+async function abrirEscanerSKU() {
+    const modal = document.getElementById('scanner-modal');
+    const feedback = document.getElementById('scanner-feedback');
+    modal.style.display = 'flex';
+    feedback.style.color = '#A0A0A0';
+    feedback.innerText = 'Iniciando cámara trasera...';
+
+    try {
+        html5QrCode = new Html5Qrcode('qr-reader');
+        await html5QrCode.start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 240, height: 160 } },
+            onScanSuccess,
+            () => {}
+        );
+        feedback.innerText = 'Listo. Apunta al código QR o de barras del equipo.';
+    } catch (err) {
+        feedback.style.color = '#ef4444';
+        feedback.innerText = 'No se pudo abrir la cámara. Revisa los permisos del navegador.';
+        console.error(err);
+    }
+}
+
+async function cerrarEscanerSKU() {
+    const modal = document.getElementById('scanner-modal');
+    if (html5QrCode) {
+        try {
+            await html5QrCode.stop();
+            html5QrCode.clear();
+        } catch (e) {
+            console.warn('Escáner ya detenido');
+        }
+        html5QrCode = null;
+    }
+    modal.style.display = 'none';
+}
+
+async function onScanSuccess(decodedText) {
+    if (scanCooldown) return;
+    scanCooldown = true;
+    setTimeout(() => { scanCooldown = false; }, 2000);
+
+    const sku = decodedText.trim().toUpperCase();
+    const feedback = document.getElementById('scanner-feedback');
+    const mode = document.querySelector('input[name="scanMode"]:checked').value;
+
+    // 1. Validación Léxica con el Autómata (DFA)
+    if (!SKU_DFA_REGEX.test(sku)) {
+        feedback.style.color = '#FFB300';
+        feedback.innerHTML = `⚠️ Código leído: <b>${sku}</b><br>No cumple con la gramática de SKU (Ej. CAM-PRO-01).`;
+        return;
+    }
+
+    if (navigator.vibrate) navigator.vibrate(100);
+
+    // 2A. MODO CONSULTA: Filtra directamente en la tabla de Productos
+    if (mode === 'search') {
+        document.getElementById('search-products').value = sku;
+        document.getElementById('filter-category').value = 'all';
+        applyProductFilters();
+        showToast(`🔍 Filtrado por SKU: ${sku}`);
+        cerrarEscanerSKU();
+        return;
+    }
+
+    // 2B. MODO SALIDA RÁPIDA (-1): Descuenta 1 unidad en Neon DB
+    if (mode === 'decrement') {
+        feedback.style.color = '#00E5FF';
+        feedback.innerText = `Procesando salida de ${sku}...`;
+
+        try {
+            const res = await fetchAuth(`/api/products/${encodeURIComponent(sku)}/decrement`, {
+                method: 'PATCH'
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                feedback.style.color = '#ef4444';
+                feedback.innerText = `❌ ${data.error}`;
+                return;
+            }
+
+            feedback.style.color = '#4CAF50';
+            feedback.innerHTML = `✅ <b>${data.product.name}</b><br>Nuevo stock: <b>${data.product.stock_quantity} unids.</b>` +
+                (data.low_stock_alert ? '<br><span style="color:#ef4444;">🔔 ¡Alerta de stock crítico activada!</span>' : '');
+
+            showToast(`📦 ${data.message}`);
+            await loadAllData();
+        } catch (err) {
+            feedback.style.color = '#ef4444';
+            feedback.innerText = 'Error de conexión con el servidor.';
+        }
+    }
+}
