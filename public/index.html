@@ -125,7 +125,7 @@
         <section id="sec-clientes" class="tab-content" style="display: none;">
             <div class="action-bar">
                 <input type="text" id="search-clients" placeholder="🔍 Buscar por nombre o ciudad..." oninput="filterTable('tbl-clientes', this.value)">
-                <div style="display: flex; gap: 8px;">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <button class="btn-secondary" onclick="window.print()">🖨️ PDF / Imprimir</button>
                     <button class="btn-secondary" onclick="exportTableToCSV('clientes.csv', 'tbl-clientes')">📥 Exportar CSV</button>
                     <button class="btn-primary" onclick="openModal('modal-cliente')">➕ Nuevo Cliente</button>
@@ -161,7 +161,8 @@
                         <option value="accesorios">Accesorios</option>
                     </select>
                 </div>
-                <div style="display: flex; gap: 8px;">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" onclick="abrirEscanerSKU()" style="background: linear-gradient(135deg, #FF5500, #d97706); color: #fff; border: none; padding: 10px 14px; border-radius: 8px; font-weight: bold; cursor: pointer;">📷 Escanear SKU</button>
                     <button class="btn-secondary" onclick="window.print()">🖨️ PDF / Imprimir</button>
                     <button class="btn-secondary" onclick="exportTableToCSV('productos.csv', 'tbl-productos')">📥 Exportar CSV</button>
                     <button class="btn-primary" onclick="openModal('modal-producto')">➕ Nuevo Producto</button>
@@ -226,7 +227,37 @@
         </div>
     </div>
 
+    <!-- MODAL ESCÁNER QR / CÓDIGO DE BARRAS (SKU) -->
+    <div id="scanner-modal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center; padding: 16px;">
+        <div style="background: #18181b; border: 1px solid #27272a; border-radius: 14px; width: 100%; max-width: 400px; padding: 18px; color: #FAFAFA; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h3 style="margin: 0; font-size: 1.05rem;">📷 Escáner de Bodega (SKU)</h3>
+                <button type="button" onclick="cerrarEscanerSKU()" style="background: #27272a; color: #FAFAFA; border: none; width: 32px; height: 32px; border-radius: 50%; cursor: pointer;">✕</button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                <label style="background: #27272a; padding: 8px; border-radius: 8px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="radio" name="scanMode" value="search" checked>
+                    <span>🔍 Consultar</span>
+                </label>
+                <label style="background: #27272a; padding: 8px; border-radius: 8px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="radio" name="scanMode" value="decrement">
+                    <span>📦 Salida (-1)</span>
+                </label>
+            </div>
+
+            <div id="qr-reader" style="width: 100%; border-radius: 10px; overflow: hidden;"></div>
+
+            <div id="scanner-feedback" style="margin-top: 12px; padding: 10px; border-radius: 8px; background: #09090b; font-size: 0.85rem; text-align: center; border: 1px solid #27272a;">
+                Apunta la cámara al código QR o de barras...
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="toast"></div>
+
+    <!-- Librería html5-qrcode (debe cargar antes de app.js) -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
