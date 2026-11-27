@@ -131,7 +131,7 @@ app.get('/api/products', authenticateToken, async (req, res) => {
 
 app.post('/api/products', authenticateToken, async (req, res) => {
     const { sku, name, category, brand, price, stock_quantity } = req.body;
-    const cleanSku = (sku || '').trim().toUpperCase();
+    const cleanSku = (sku ? sku : '').trim().toUpperCase();
     try {
         const result = await db.query(
             'INSERT INTO products (sku, name, category, brand, price, stock_quantity) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
@@ -154,37 +154,34 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
 
 // Escáner QR/Barras - Validación DFA (SKU interno o EAN/UPC) y descuento atómico
 app.patch('/api/products/:sku/decrement', authenticateToken, async (req, res) => {
-    const sku = (req.params.sku || '').trim().toUpperCase();
+    const sku = (req.params.sku ? req.params.sku : '').trim().toUpperCase();
 
     // Validación Léxica / Autómata Finito Determinista (DFA)
     const skuRegex = /^([A-Z]{3,4}-[A-Z0-9]{3,6}-\d{2}|\d{8,14})$/;
     if (!skuRegex.test(sku)) {
         return res.status(400).json({
-            error: `Código "${sku}" rechazado por el analizador léxico (formato esperado: XXX-XXX-00 o código de barras EAN/UPC).`
+            error: 'Código "' + sku + '" rechazado por el analizador léxico (formato esperado: XXX-XXX-00 o código de barras EAN/UPC).'
         });
     }
 
     try {
         const result = await db.query(
-            `UPDATE products
-             SET stock_quantity = stock_quantity - 1
-             WHERE sku = $1 AND stock_quantity > 0
-             RETURNING id, sku, name, category, brand, price, stock_quantity`,
+            'UPDATE products SET stock_quantity = stock_quantity - 1 WHERE sku = $1 AND stock_quantity > 0 RETURNING id, sku, name, category, brand, price, stock_quantity',
             [sku]
         );
 
         if (result.rowCount === 0) {
             const check = await db.query('SELECT stock_quantity FROM products WHERE sku = $1', [sku]);
             if (check.rowCount === 0) {
-                return res.status(404).json({ error: `El código ${sku} no está registrado en el catálogo.` });
+                return res.status(404).json({ error: 'El código ' + sku + ' no está registrado en el catálogo.' });
             }
-            return res.status(409).json({ error: `Sin existencias disponibles para ${sku} (Stock: 0).` });
+            return res.status(409).json({ error: 'Sin existencias disponibles para ' + sku + ' (Stock: 0).' });
         }
 
         const updatedProduct = result.rows[0];
 
         res.json({
-            message: `Salida registrada: -1 unidad de ${updatedProduct.name}`,
+            message: 'Salida registrada: -1 unidad de ' + updatedProduct.name,
             product: updatedProduct,
             low_stock_alert: updatedProduct.stock_quantity <= 5
         });
@@ -198,7 +195,7 @@ app.patch('/api/products/:sku/decrement', authenticateToken, async (req, res) =>
 
 // 1. Historial real de movimientos (Kardex) y serie agrupada para Dashboard
 app.get('/api/movements', authenticateToken, async (req, res) => {
-    const range = req.query.range || 'week';
+    const range = req.query.range ? req.query.range : 'week';
     const intervalMap = {
         day: '24 hours',
         week: '7 days',
@@ -212,33 +209,31 @@ app.get('/api/movements', authenticateToken, async (req, res) => {
         year: 'YYYY-MM'
     };
 
-    const interval = intervalMap[range] || '7 days';
-    const dateFormat = formatMap[range] || 'DD/MM';
+    const interval = intervalMap[range] ? intervalMap[range] : '7 days';
+    const dateFormat = formatMap[range] ? formatMap[range] : 'DD/MM';
 
     try {
         const logsResult = await db.query(
             'SELECT * FROM inventory_movements ORDER BY created_at DESC LIMIT 40'
         );
 
-        const chartResult = await db.query(
-            `SELECT 
-                TO_CHAR(bucket, $1) AS label,
-                SUM(ABS(quantity_change))::int AS total_units
-             FROM (
-                SELECT 
-                    quantity_change,
-                    CASE 
-                        WHEN $3 = 'day' THEN DATE_TRUNC('hour', created_at AT TIME ZONE 'America/Mexico_City')
-                        WHEN $3 = 'year' THEN DATE_TRUNC('month', created_at AT TIME ZONE 'America/Mexico_City')
-                        ELSE DATE_TRUNC('day', created_at AT TIME ZONE 'America/Mexico_City')
-                    END AS bucket
-                FROM inventory_movements
-                WHERE created_at >= NOW() - $2::interval
-             ) sub
-             GROUP BY bucket
-             ORDER BY bucket ASC`,
-            [dateFormat, interval, range]
-        );
+        const chartSql = [
+            "SELECT TO_CHAR(bucket, $1) AS label, SUM(ABS(quantity_change))::int AS total_units",
+            "FROM (",
+            "  SELECT quantity_change,",
+            "    CASE",
+            "      WHEN $3 = 'day' THEN DATE_TRUNC('hour', created_at AT TIME ZONE 'America/Mexico_City')",
+            "      WHEN $3 = 'year' THEN DATE_TRUNC('month', created_at AT TIME ZONE 'America/Mexico_City')",
+            "      ELSE DATE_TRUNC('day', created_at AT TIME ZONE 'America/Mexico_City')",
+            "    END AS bucket",
+            "  FROM inventory_movements",
+            "  WHERE created_at >= NOW() - $2::interval",
+            ") sub",
+            "GROUP BY bucket",
+            "ORDER BY bucket ASC"
+        ].join(' ');
+
+        const chartResult = await db.query(chartSql, [dateFormat, interval, range]);
 
         res.json({
             logs: logsResult.rows,
@@ -253,28 +248,29 @@ app.get('/api/movements', authenticateToken, async (req, res) => {
 // 2. Listar cotizaciones y órdenes B2B con sus partidas
 app.get('/api/orders', authenticateToken, async (req, res) => {
     try {
-        const result = await db.query(`
-            SELECT o.*,
-                   c.phone AS client_phone,
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               'product_id', oi.product_id,
-                               'sku', oi.sku,
-                               'product_name', oi.product_name,
-                               'quantity', oi.quantity,
-                               'unit_price', oi.unit_price,
-                               'line_total', oi.line_total
-                           )
-                       ) FILTER (WHERE oi.id IS NOT NULL),
-                       '[]'
-                   ) AS items
-            FROM orders o
-            LEFT JOIN clients c ON c.id = o.client_id
-            LEFT JOIN order_items oi ON oi.order_id = o.id
-            GROUP BY o.id, c.phone
-            ORDER BY o.created_at DESC
-        `);
+        const ordersSql = [
+            "SELECT o.*, c.phone AS client_phone,",
+            "COALESCE(",
+            "  json_agg(",
+            "    json_build_object(",
+            "      'product_id', oi.product_id,",
+            "      'sku', oi.sku,",
+            "      'product_name', oi.product_name,",
+            "      'quantity', oi.quantity,",
+            "      'unit_price', oi.unit_price,",
+            "      'line_total', oi.line_total",
+            "    )",
+            "  ) FILTER (WHERE oi.id IS NOT NULL),",
+            "  '[]'",
+            ") AS items",
+            "FROM orders o",
+            "LEFT JOIN clients c ON c.id = o.client_id",
+            "LEFT JOIN order_items oi ON oi.order_id = o.id",
+            "GROUP BY o.id, c.phone",
+            "ORDER BY o.created_at DESC"
+        ].join(' ');
+
+        const result = await db.query(ordersSql);
         res.json(result.rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -283,7 +279,11 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 
 // 3. Crear Cotización o Venta Confirmada con Transacción ACID (BEGIN / COMMIT / ROLLBACK)
 app.post('/api/orders', authenticateToken, async (req, res) => {
-    const { client_id, items, discount_percent = 0, status = 'CONFIRMADA' } = req.body;
+    const body = req.body ? req.body : {};
+    const client_id = body.client_id;
+    const items = body.items;
+    const discount_percent = body.discount_percent !== undefined ? body.discount_percent : 0;
+    const status = body.status ? body.status : 'CONFIRMADA';
 
     if (!client_id || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ error: 'Selecciona un cliente y al menos un producto.' });
@@ -308,36 +308,71 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
         for (const item of items) {
             const qty = parseInt(item.quantity, 10);
-            if (!qty || qty <= 0) throw new Error('Cantidad inválida en los productos.');
+            if (!qty || qty <= 0) {
+                throw new Error('Cantidad inválida en los productos.');
+            }
 
             const prodRes = await client.query(
                 'SELECT id, sku, name, price, stock_quantity FROM products WHERE id = $1 FOR UPDATE',
                 [item.product_id]
             );
             if (prodRes.rowCount === 0) {
-                throw new Error(`Producto ID ${item.product_id} no encontrado.`);
+                throw new Error('Producto ID ' + item.product_id + ' no encontrado.');
             }
 
             const prod = prodRes.rows[0];
 
-            // Si es venta confirmada, validar stock y descontar (el Trigger registra el Kardex)
             if (status === 'CONFIRMADA') {
                 if (prod.stock_quantity < qty) {
-                    throw new Error(`Stock insuficiente para ${prod.name} (Disponible:${prod.stock_quantity}, Solicitado: ${qty}).`); } await client.query( 'UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2', [qty, prod.id] ); }  const unitPrice = parseFloat(prod.price); const lineTotal = unitPrice * qty; subtotal += lineTotal;  processedItems.push({ product_id: prod.id, sku: prod.sku, product_name: prod.name, quantity: qty, unit_price: unitPrice, line_total: lineTotal }); }  const disc = Math.min(Math.max(parseFloat(discount_percent) \vert{}\vert{} 0, 0), 100); const discountedSubtotal = subtotal * (1 - disc / 100); const tax = discountedSubtotal * 0.16; const total = discountedSubtotal + tax; const folio = `SYN-${Date.now().toString().slice(-6)}`;
+                    throw new Error('Stock insuficiente para ' + prod.name + ' (Disponible: ' + prod.stock_quantity + ', Solicitado: ' + qty + ').');
+                }
+                await client.query(
+                    'UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2',
+                    [qty, prod.id]
+                );
+            }
+
+            const unitPrice = parseFloat(prod.price);
+            const lineTotal = unitPrice * qty;
+            subtotal += lineTotal;
+
+            processedItems.push({
+                product_id: prod.id,
+                sku: prod.sku,
+                product_name: prod.name,
+                quantity: qty,
+                unit_price: unitPrice,
+                line_total: lineTotal
+            });
+        }
+
+        const parsedDisc = parseFloat(discount_percent);
+        const safeDisc = Number.isNaN(parsedDisc) ? 0 : parsedDisc;
+        const disc = Math.min(Math.max(safeDisc, 0), 100);
+        const discountedSubtotal = subtotal * (1 - disc / 100);
+        const tax = discountedSubtotal * 0.16;
+        const total = discountedSubtotal + tax;
+        const folio = 'SYN-' + Date.now().toString().slice(-6);
 
         const orderRes = await client.query(
-            `INSERT INTO orders (folio, client_id, client_name, discount_percent, subtotal, tax, total, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             RETURNING *`,
+            'INSERT INTO orders (folio, client_id, client_name, discount_percent, subtotal, tax, total, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
             [folio, customer.id, customer.business_name, disc, subtotal.toFixed(2), tax.toFixed(2), total.toFixed(2), status]
         );
         const newOrder = orderRes.rows[0];
 
         for (const pItem of processedItems) {
             await client.query(
-                `INSERT INTO order_items (order_id, product_id, sku, product_name, quantity, unit_price, line_total)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)`, [newOrder.id, pItem.product_id, pItem.sku, pItem.product_name, pItem.quantity, pItem.unit_price, pItem.line_total] ); }  await client.query('COMMIT');  res.status(201).json({ message: status === 'CONFIRMADA' ? `Venta ${folio} confirmada y stock descontado`
-                : `Cotización ${folio} generada`,
+                'INSERT INTO order_items (order_id, product_id, sku, product_name, quantity, unit_price, line_total) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+                [newOrder.id, pItem.product_id, pItem.sku, pItem.product_name, pItem.quantity, pItem.unit_price, pItem.line_total]
+            );
+        }
+
+        await client.query('COMMIT');
+
+        res.status(201).json({
+            message: status === 'CONFIRMADA'
+                ? 'Venta ' + folio + ' confirmada y stock descontado'
+                : 'Cotización ' + folio + ' generada',
             order: { ...newOrder, items: processedItems, client_phone: customer.phone }
         });
     } catch (err) {
@@ -360,7 +395,7 @@ app.patch('/api/orders/:id/confirm', authenticateToken, async (req, res) => {
 
         const order = orderRes.rows[0];
         if (order.status === 'CONFIRMADA') {
-            throw new Error(`La orden ${order.folio} ya está confirmada.`);
+            throw new Error('La orden ' + order.folio + ' ya está confirmada.');
         }
 
         const itemsRes = await client.query('SELECT * FROM order_items WHERE order_id = $1', [order.id]);
@@ -371,8 +406,31 @@ app.patch('/api/orders/:id/confirm', authenticateToken, async (req, res) => {
                 [item.product_id]
             );
             if (prodRes.rowCount === 0) {
-                throw new Error(`El producto ${item.product_name} ya no existe en el catálogo.`);
+                throw new Error('El producto ' + item.product_name + ' ya no existe en el catálogo.');
             }
             const prod = prodRes.rows[0];
             if (prod.stock_quantity < item.quantity) {
-                throw new Error(`Stock insuficiente para ${prod.name} (Disponible: ${prod.stock_quantity}, Requerido:${item.
+                throw new Error('Stock insuficiente para ' + prod.name + ' (Disponible: ' + prod.stock_quantity + ', Requerido: ' + item.quantity + ').');
+            }
+
+            await client.query(
+                'UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2',
+                [item.quantity, prod.id]
+            );
+        }
+
+        await client.query("UPDATE orders SET status = 'CONFIRMADA' WHERE id = $1", [order.id]);
+        await client.query('COMMIT');
+
+        res.json({ message: 'Cotización ' + order.folio + ' convertida en venta confirmada' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: err.message });
+    } finally {
+        release();
+    }
+});
+
+app.listen(PORT, () => {
+    console.log('🚀 Servidor Synkro activo en puerto ' + PORT);
+});
