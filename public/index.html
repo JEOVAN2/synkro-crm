@@ -10,8 +10,9 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#3B82F6">
     
-    <!-- Chart.js CDN -->
+    <!-- Chart.js y QRCode.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -69,15 +70,15 @@
         </header>
 
         <!-- Pestañas de Navegación -->
-        <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
-            <button class="tab-btn" onclick="switchTab('clientes')">👥 Clientes</button>
-            <button class="tab-btn" onclick="switchTab('productos')">📦 Productos</button>
+        <div class="tabs" style="flex-wrap: wrap;">
+            <button class="tab-btn active" onclick="switchTab('dashboard', this)">📊 Dashboard</button>
+            <button class="tab-btn" onclick="switchTab('clientes', this)">👥 Clientes</button>
+            <button class="tab-btn" onclick="switchTab('productos', this)">📦 Productos</button>
+            <button class="tab-btn" onclick="switchTab('ordenes', this)">🧾 Ventas / Cotizaciones</button>
         </div>
 
-        <!-- PESTAÑA 1: DASHBOARD -->
+        <!-- PESTAÑA 1: DASHBOARD Y KARDEX REAL -->
         <section id="sec-dashboard" class="tab-content">
-            <!-- SELECTOR DE RANGO DE TIEMPO -->
             <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
                 <div class="cir-tabs" role="tablist" aria-label="Rango de tiempo">
                     <input class="cir-tabs__r" type="radio" name="cir-range" id="cir-r-day" value="day" />
@@ -115,9 +116,32 @@
                     <canvas id="chart-categorias"></canvas>
                 </div>
                 <div class="chart-box">
-                    <h3>📈 Tendencia de Movimientos</h3>
+                    <h3>📈 Movimientos Reales (Kardex Neon DB)</h3>
                     <canvas id="chart-ciudades"></canvas>
                 </div>
+            </div>
+
+            <!-- BITÁCORA KARDEX AUTOMÁTICA POR TRIGGER SQL -->
+            <div class="table-container" style="margin-top: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                    <h3 style="margin: 0; font-size: 16px; color: #60A5FA;">📋 Bitácora Kardex en Tiempo Real (Triggers PostgreSQL)</h3>
+                    <span style="font-size: 12px; color: #94A3B8;">Auditoría automática de altas, ventas y escáner</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha / Hora</th>
+                            <th>SKU</th>
+                            <th>Equipo</th>
+                            <th>Movimiento</th>
+                            <th>Variación</th>
+                            <th>Stock Final</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbl-kardex">
+                        <tr><td colspan="6" style="text-align: center; color: #94A3B8;">Cargando movimientos...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </section>
 
@@ -177,10 +201,38 @@
                             <th>Categoría</th>
                             <th>Precio</th>
                             <th>Stock</th>
-                            <th>Acción</th>
+                            <th>Acciones</th>
                         </tr>
                     </thead>
                     <tbody id="tbl-productos"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- PESTAÑA 4: VENTAS Y COTIZACIONES B2B -->
+        <section id="sec-ordenes" class="tab-content" style="display: none;">
+            <div class="action-bar" style="flex-wrap: wrap; gap: 10px;">
+                <input type="text" id="search-orders" placeholder="🔍 Buscar por folio o gimnasio..." oninput="filterTable('tbl-ordenes', this.value)">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn-secondary" onclick="window.print()">🖨️ PDF / Imprimir</button>
+                    <button class="btn-primary" onclick="openOrderModal()">➕ Nueva Cotización / Venta</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Folio</th>
+                            <th>Cliente / Gimnasio</th>
+                            <th>Equipos Incluidos</th>
+                            <th>Total (c/IVA)</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbl-ordenes">
+                        <tr><td colspan="6" style="text-align: center; color: #94A3B8;">Sin cotizaciones ni ventas registradas</td></tr>
+                    </tbody>
                 </table>
             </div>
         </section>
@@ -193,7 +245,7 @@
             <form id="form-cliente">
                 <div class="form-group"><label>Nombre del Negocio *</label><input type="text" id="c-negocio" required></div>
                 <div class="form-group"><label>Contacto</label><input type="text" id="c-contacto"></div>
-                <div class="form-group"><label>Teléfono</label><input type="text" id="c-telefono"></div>
+                <div class="form-group"><label>Teléfono (WhatsApp)</label><input type="text" id="c-telefono" placeholder="+52 981 000 0000"></div>
                 <div class="form-group"><label>Ciudad</label><input type="text" id="c-ciudad"></div>
                 <button type="submit" class="btn-primary" style="width: 100%;">Guardar en Neon</button>
                 <button type="button" onclick="closeModal('modal-cliente')" style="width: 100%; margin-top: 8px; background: none; border: none; color: #94A3B8; cursor: pointer;">Cancelar</button>
@@ -224,6 +276,66 @@
                 <button type="submit" class="btn-primary" style="width: 100%;">Guardar Producto</button>
                 <button type="button" onclick="closeModal('modal-producto')" style="width: 100%; margin-top: 8px; background: none; border: none; color: #94A3B8; cursor: pointer;">Cancelar</button>
             </form>
+        </div>
+    </div>
+
+    <!-- MODAL COTIZADOR / ORDEN DE VENTA B2B -->
+    <div id="modal-orden" class="modal">
+        <div class="modal-content" style="width: 520px; max-width: 94vw; max-height: 90vh; overflow-y: auto;">
+            <h3 style="margin-top: 0; color: #60A5FA;">🧾 Nueva Cotización / Venta B2B</h3>
+
+            <div class="form-group">
+                <label>Cliente / Gimnasio *</label>
+                <select id="o-cliente"></select>
+            </div>
+
+            <div class="form-group">
+                <label>Agregar Equipo al Pedido</label>
+                <div style="display: flex; gap: 8px;">
+                    <select id="o-producto" style="flex: 1;"></select>
+                    <input type="number" id="o-cantidad" value="1" min="1" style="width: 72px; text-align: center;">
+                    <button type="button" class="btn-primary" onclick="addOrderItem()" style="padding: 8px 14px;">➕</button>
+                </div>
+            </div>
+
+            <div id="o-items-list" style="background: #0F172A; border: 1px solid #334155; border-radius: 8px; padding: 10px; margin-bottom: 14px; max-height: 180px; overflow-y: auto;">
+                <p style="color: #94A3B8; font-size: 13px; text-align: center; margin: 6px 0;">Aún no agregas equipos a la orden</p>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; margin-bottom: 14px;">
+                <div class="form-group" style="margin: 0;">
+                    <label>Descuento Comercial (%)</label>
+                    <input type="number" id="o-descuento" value="0" min="0" max="100" oninput="renderOrderSummary()">
+                </div>
+                <div style="background: #0F172A; border: 1px solid #334155; border-radius: 8px; padding: 10px; font-size: 13px; text-align: right;">
+                    <div style="color: #94A3B8;">Subtotal: <span id="o-subtotal" style="color: #F8FAFC;">$0.00</span></div>
+                    <div style="color: #94A3B8;">IVA (16%): <span id="o-iva" style="color: #F8FAFC;">$0.00</span></div>
+                    <div style="font-size: 16px; font-weight: bold; color: #34D399; margin-top: 4px;">Total: <span id="o-total">$0.00</span></div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <button type="button" class="btn-secondary" onclick="submitOrder('COTIZACION')" style="width: 100%;">📄 Solo Cotizar</button>
+                <button type="button" class="btn-primary" onclick="submitOrder('CONFIRMADA')" style="width: 100%;">💳 Confirmar Venta</button>
+            </div>
+            <button type="button" onclick="closeModal('modal-orden')" style="width: 100%; margin-top: 10px; background: none; border: none; color: #94A3B8; cursor: pointer;">Cancelar</button>
+        </div>
+    </div>
+
+    <!-- MODAL GENERADOR DE ETIQUETA QR -->
+    <div id="modal-etiqueta" class="modal">
+        <div class="modal-content" style="text-align: center; width: 340px;">
+            <h3 style="margin-top: 0; color: #60A5FA;">🏷️ Etiqueta de Inventario</h3>
+            <div style="background: #ffffff; color: #0F172A; padding: 18px; border-radius: 10px; display: inline-block; margin: 10px auto;">
+                <div id="qr-label-box" style="display: flex; justify-content: center;"></div>
+                <div id="label-sku" style="font-family: monospace; font-weight: bold; font-size: 16px; margin-top: 10px; letter-spacing: 1px;"></div>
+                <div id="label-name" style="font-size: 13px; font-weight: 600; margin-top: 4px; max-width: 220px;"></div>
+                <div id="label-price" style="font-size: 14px; font-weight: bold; color: #2563EB; margin-top: 4px;"></div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 12px;">
+                <button type="button" class="btn-primary" onclick="window.print()" style="flex: 1;">🖨️ Imprimir</button>
+                <button type="button" class="btn-secondary" onclick="closeModal('modal-etiqueta')" style="flex: 1;">Cerrar</button>
+            </div>
         </div>
     </div>
 
