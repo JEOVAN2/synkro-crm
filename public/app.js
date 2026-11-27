@@ -2,30 +2,15 @@ let chartCatInstance = null;
 let chartCityInstance = null;
 let allProductsCache = [];
 let allClientsCache = [];
+let allOrdersCache = [];
+let currentOrderItems = [];
 let currentRange = 'week';
 
-// Métricas por rango de tiempo (Día, Semana, Mes, Año)
-const rangeMetrics = {
-    day: {
-        labels: ['08:00 AM', '11:00 AM', '02:00 PM', '05:00 PM', '08:00 PM'],
-        data: [1, 4, 2, 5, 2],
-        subtext: 'Movimientos de Hoy'
-    },
-    week: {
-        labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'],
-        data: [12, 19, 15, 22, 18, 25, 10],
-        subtext: 'Movimientos de esta Semana'
-    },
-    month: {
-        labels: ['Semana 1', 'Semana 2', 'Semana 3', 'Semana 4'],
-        data: [45, 68, 52, 84],
-        subtext: 'Movimientos de este Mes'
-    },
-    year: {
-        labels: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct'],
-        data: [120, 210, 310, 450, 580, 720, 890, 1020, 1150, 1280],
-        subtext: 'Movimientos del Año'
-    }
+const rangeLabelsMap = {
+    day: 'Movimientos de Hoy (Unidades)',
+    week: 'Movimientos de esta Semana (Unidades)',
+    month: 'Movimientos de este Mes (Unidades)',
+    year: 'Movimientos del Año (Unidades)'
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -35,13 +20,13 @@ document.addEventListener('DOMContentLoaded', () => {
         navigator.serviceWorker.register('/sw.js').catch(err => console.log(err));
     }
 
-    // Selector de Rango Temporal
+    // Selector de Rango Temporal conectado al Kardex real
     document.querySelectorAll('input[name="cir-range"]').forEach(radio => {
-        radio.addEventListener('change', (e) => {
+        radio.addEventListener('change', async (e) => {
             currentRange = e.target.value;
             const labelText = e.target.nextElementSibling.innerText;
-            showToast(`📅 Vistas actualizadas a: ${labelText}`);
-            updateDashboard(allClientsCache, allProductsCache);
+            showToast('📅 Kardex actualizado a: ' + labelText);
+            await loadMovementsAndCharts();
         });
     });
 });
@@ -52,7 +37,6 @@ function toggleNotifDropdown() {
     dropdown.style.display = (dropdown.style.display === 'none' || !dropdown.style.display) ? 'block' : 'none';
 }
 
-// Cerrar el panel al hacer clic en cualquier parte fuera de la campana
 document.addEventListener('click', (e) => {
     const notifBtn = document.querySelector('.btn-notif');
     const dropdown = document.getElementById('notif-dropdown');
@@ -68,7 +52,7 @@ function checkAuth() {
     if (token) {
         document.getElementById('login-screen').style.display = 'none';
         document.getElementById('app-content').style.display = 'block';
-        document.getElementById('user-display').innerText = `👤 ${username}`;
+        document.getElementById('user-display').innerText = '👤 ' + username;
         loadAllData();
     } else {
         document.getElementById('login-screen').style.display = 'flex';
@@ -97,7 +81,7 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
         if (res.ok) {
             localStorage.setItem('synkro_token', data.token);
             localStorage.setItem('synkro_user', data.username);
-            showToast(`¡Bienvenido ${data.username}!`);
+            showToast('¡Bienvenido ' + data.username + '!');
             checkAuth();
         } else {
             alert(data.error || 'Credenciales incorrectas');
@@ -120,7 +104,7 @@ async function fetchAuth(url, options = {}) {
     const token = localStorage.getItem('synkro_token');
     options.headers = {
         ...options.headers,
-        'Authorization': `Bearer ${token}`,
+        'Authorization': 'Bearer ' + token,
         'Content-Type': 'application/json'
     };
     const res = await fetch(url, options);
@@ -137,7 +121,9 @@ async function loadAllData() {
         const products = await loadProducts();
         allClientsCache = clients;
         allProductsCache = products;
-        updateDashboard(clients, products);
+        updateDashboardKPIs(clients, products);
+        await loadMovementsAndCharts();
+        await loadOrders();
         updateSyncTimestamp();
     } catch (err) {
         console.error(err);
@@ -148,16 +134,18 @@ function updateSyncTimestamp() {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const syncEl = document.getElementById('last-sync-time');
-    if (syncEl) syncEl.innerText = `⏱️ Sincronizado: ${timeStr}`;
+    if (syncEl) syncEl.innerText = '⏱️ Sincronizado: ' + timeStr;
 }
 
-function switchTab(tab) {
+function switchTab(tab, btnEl) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(sec => sec.style.display = 'none');
-    document.getElementById(`sec-${tab}`).style.display = 'block';
-    event.target.classList.add('active');
+    document.getElementById('sec-' + tab).style.display = 'block';
+    const activeBtn = btnEl || (typeof event !== 'undefined' ? event.currentTarget : null);
+    if (activeBtn) activeBtn.classList.add('active');
 }
 
+// --- CLIENTES ---
 async function loadClients() {
     const res = await fetchAuth('/api/clients');
     const clients = await res.json();
@@ -174,6 +162,7 @@ async function loadClients() {
     return clients;
 }
 
+// --- PRODUCTOS Y ETIQUETAS QR ---
 async function loadProducts() {
     const res = await fetchAuth('/api/products');
     const products = await res.json();
@@ -185,7 +174,7 @@ async function loadProducts() {
 function renderProductsTable(products) {
     const tbody = document.getElementById('tbl-productos');
     tbody.innerHTML = products.map(p => {
-        const isLowStock = parseInt(p.stock_quantity) <= 5;
+        const isLowStock = parseInt(p.stock_quantity, 10) <= 5;
         const stockClass = isLowStock ? 'stock-low' : 'stock-ok';
         const stockIcon = isLowStock ? '⚠️ ' : '';
         const catClass = p.category ? p.category.toLowerCase() : 'accesorios';
@@ -198,10 +187,33 @@ function renderProductsTable(products) {
                 <td><span class="badge badge-${catClass}">${categoryClean}</span></td>
                 <td>$${parseFloat(p.price).toFixed(2)}</td>
                 <td><span class="stock-badge ${stockClass}">${stockIcon}${p.stock_quantity} unids.</span></td>
-                <td><button class="btn-danger" onclick="deleteProduct(${p.id})">🗑️ Eliminar</button></td>
+                <td style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button class="btn-secondary" style="padding: 4px 8px; font-size: 12px;" onclick="openQRLabel(${p.id})">🏷️ Etiqueta</button>
+                    <button class="btn-danger" onclick="deleteProduct(${p.id})">🗑️</button>
+                </td>
             </tr>
         `;
     }).join('');
+}
+
+function openQRLabel(productId) {
+    const prod = allProductsCache.find(p => p.id === productId);
+    if (!prod) return;
+
+    const qrBox = document.getElementById('qr-label-box');
+    qrBox.innerHTML = '';
+    new QRCode(qrBox, {
+        text: prod.sku,
+        width: 160,
+        height: 160,
+        colorDark: '#0F172A',
+        colorLight: '#FFFFFF'
+    });
+
+    document.getElementById('label-sku').innerText = prod.sku;
+    document.getElementById('label-name').innerText = prod.name;
+    document.getElementById('label-price').innerText = '$' + parseFloat(prod.price).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+    openModal('modal-etiqueta');
 }
 
 function applyProductFilters() {
@@ -221,20 +233,17 @@ function applyProductFilters() {
     renderProductsTable(filtered);
 }
 
-function updateDashboard(clients, products) {
-    const metrics = rangeMetrics[currentRange] || rangeMetrics.week;
-
-    // KPIs
+// --- DASHBOARD KPIs + KARDEX REAL ---
+function updateDashboardKPIs(clients, products) {
     document.getElementById('kpi-clientes').innerText = clients.length;
 
-    const totalStock = products.reduce((acc, p) => acc + (parseInt(p.stock_quantity) || 0), 0);
-    document.getElementById('kpi-stock').innerText = `${totalStock} Unids.`;
+    const totalStock = products.reduce((acc, p) => acc + (parseInt(p.stock_quantity, 10) || 0), 0);
+    document.getElementById('kpi-stock').innerText = totalStock + ' Unids.';
 
-    const totalValue = products.reduce((acc, p) => acc + ((parseFloat(p.price) || 0) * (parseInt(p.stock_quantity) || 0)), 0);
-    document.getElementById('kpi-valor').innerText = `$${totalValue.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+    const totalValue = products.reduce((acc, p) => acc + ((parseFloat(p.price) || 0) * (parseInt(p.stock_quantity, 10) || 0)), 0);
+    document.getElementById('kpi-valor').innerText = '$' + totalValue.toLocaleString('es-MX', { minimumFractionDigits: 2 });
 
-    // Alertas en panel de notificaciones
-    const lowStockItems = products.filter(p => parseInt(p.stock_quantity) <= 5);
+    const lowStockItems = products.filter(p => parseInt(p.stock_quantity, 10) <= 5);
     const badge = document.getElementById('notif-badge');
     const notifList = document.getElementById('notif-list');
 
@@ -253,11 +262,11 @@ function updateDashboard(clients, products) {
         notifList.innerHTML = '<p style="color: #94A3B8; font-size: 13px; margin: 10px 0; text-align: center;">Sin notificaciones pendientes</p>';
     }
 
-    // 1. Gráfico Doughnut: Categorías (Paleta Azul Cobalto)
+    // Gráfico Doughnut: Categorías
     const catMap = {};
     products.forEach(p => {
         const catName = p.category ? p.category.replace(/_/g, ' ') : 'otros';
-        catMap[catName] = (catMap[catName] || 0) + parseInt(p.stock_quantity);
+        catMap[catName] = (catMap[catName] || 0) + (parseInt(p.stock_quantity, 10) || 0);
     });
 
     if (chartCatInstance) chartCatInstance.destroy();
@@ -275,48 +284,296 @@ function updateDashboard(clients, products) {
         },
         options: { plugins: { legend: { labels: { color: '#F8FAFC' } } } }
     });
-
-    // 2. Gráfico de Barras: Dinámico por Rango Activo
-    if (chartCityInstance) chartCityInstance.destroy();
-    const ctxCity = document.getElementById('chart-ciudades').getContext('2d');
-    chartCityInstance = new Chart(ctxCity, {
-        type: 'bar',
-        data: {
-            labels: metrics.labels,
-            datasets: [{
-                label: metrics.subtext,
-                data: metrics.data,
-                backgroundColor: '#3B82F6',
-                borderRadius: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                x: { ticks: { color: '#F8FAFC' }, grid: { color: 'rgba(51, 65, 85, 0.4)' } },
-                y: { ticks: { color: '#F8FAFC' }, grid: { color: 'rgba(51, 65, 85, 0.4)' }, beginAtZero: true }
-            },
-            plugins: { legend: { labels: { color: '#F8FAFC' } } }
-        }
-    });
 }
 
+async function loadMovementsAndCharts() {
+    try {
+        const res = await fetchAuth('/api/movements?range=' + currentRange);
+        const data = await res.json();
+
+        const chartRows = Array.isArray(data.chart) ? data.chart : [];
+        const labels = chartRows.length > 0 ? chartRows.map(r => r.label) : ['Sin movimientos'];
+        const values = chartRows.length > 0 ? chartRows.map(r => r.total_units) : [0];
+
+        if (chartCityInstance) chartCityInstance.destroy();
+        const ctxCity = document.getElementById('chart-ciudades').getContext('2d');
+        chartCityInstance = new Chart(ctxCity, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: rangeLabelsMap[currentRange] || 'Movimientos',
+                    data: values,
+                    backgroundColor: '#3B82F6',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { ticks: { color: '#F8FAFC' }, grid: { color: 'rgba(51, 65, 85, 0.4)' } },
+                    y: { ticks: { color: '#F8FAFC' }, grid: { color: 'rgba(51, 65, 85, 0.4)' }, beginAtZero: true }
+                },
+                plugins: { legend: { labels: { color: '#F8FAFC' } } }
+            }
+        });
+
+        // Renderizar bitácora Kardex
+        const logs = Array.isArray(data.logs) ? data.logs : [];
+        const tbody = document.getElementById('tbl-kardex');
+        if (logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #94A3B8;">Aún no hay movimientos registrados por el trigger</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = logs.map(m => {
+            const dateStr = new Date(m.created_at).toLocaleString('es-MX', {
+                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+            });
+            const isSalida = m.movement_type === 'SALIDA';
+            const badgeColor = isSalida ? 'stock-low' : 'stock-ok';
+            const sign = m.quantity_change > 0 ? '+' : '';
+            return `
+                <tr>
+                    <td style="font-size: 12px; color: #94A3B8;">${dateStr}</td>
+                    <td><code>${m.sku}</code></td>
+                    <td>${m.product_name}</td>
+                    <td><span class="stock-badge ${badgeColor}">${m.movement_type}</span></td>
+                    <td><strong>${sign}${m.quantity_change}</strong></td>
+                    <td>${m.new_stock} unids.</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        console.error('Error cargando Kardex:', err);
+    }
+}
+
+// --- COTIZADOR Y ÓRDENES B2B ---
+async function loadOrders() {
+    try {
+        const res = await fetchAuth('/api/orders');
+        const orders = await res.json();
+        allOrdersCache = Array.isArray(orders) ? orders : [];
+        const tbody = document.getElementById('tbl-ordenes');
+
+        if (allOrdersCache.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #94A3B8;">Sin cotizaciones ni ventas registradas</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = allOrdersCache.map(o => {
+            const isConfirmed = o.status === 'CONFIRMADA';
+            const statusBadge = isConfirmed
+                ? '<span class="stock-badge stock-ok">✅ CONFIRMADA</span>'
+                : '<span class="badge badge-racks_jaulas">📄 COTIZACIÓN</span>';
+
+            const itemsSummary = Array.isArray(o.items)
+                ? o.items.map(i => `${i.quantity}x ${i.product_name}`).join(', ')
+                : '-';
+
+            const confirmBtn = !isConfirmed
+                ? `<button class="btn-primary" style="padding: 4px 8px; font-size: 12px;" onclick="confirmOrder(${o.id})">✅ Confirmar</button>`
+                : '';
+
+            return `
+                <tr>
+                    <td><code>${o.folio}</code></td>
+                    <td><strong>${o.client_name}</strong></td>
+                    <td style="font-size: 13px; max-width: 260px;">${itemsSummary}</td>
+                    <td><strong>$${parseFloat(o.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong></td>
+                    <td>${statusBadge}</td>
+                    <td style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        ${confirmBtn}
+                        <button class="btn-secondary" style="padding: 4px 8px; font-size: 12px;" onclick="shareOrderWhatsApp(${o.id})">📲 WhatsApp</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        console.error('Error cargando órdenes:', err);
+    }
+}
+
+function openOrderModal() {
+    if (allClientsCache.length === 0 || allProductsCache.length === 0) {
+        alert('Registra al menos un cliente y un producto antes de cotizar.');
+        return;
+    }
+
+    const clientSelect = document.getElementById('o-cliente');
+    clientSelect.innerHTML = allClientsCache.map(c =>
+        `<option value="${c.id}">${c.business_name} (${c.city || 'Sin ciudad'})</option>`
+    ).join('');
+
+    const prodSelect = document.getElementById('o-producto');
+    prodSelect.innerHTML = allProductsCache.map(p =>
+        `<option value="${p.id}">${p.name} [${p.sku}] - $${parseFloat(p.price).toFixed(2)} (Stock: ${p.stock_quantity})</option>`
+    ).join('');
+
+    currentOrderItems = [];
+    document.getElementById('o-cantidad').value = 1;
+    document.getElementById('o-descuento').value = 0;
+    renderOrderSummary();
+    openModal('modal-orden');
+}
+
+function addOrderItem() {
+    const productId = parseInt(document.getElementById('o-producto').value, 10);
+    const qty = parseInt(document.getElementById('o-cantidad').value, 10);
+    if (!productId || !qty || qty <= 0) return;
+
+    const prod = allProductsCache.find(p => p.id === productId);
+    if (!prod) return;
+
+    const existing = currentOrderItems.find(item => item.product_id === productId);
+    if (existing) {
+        existing.quantity += qty;
+    } else {
+        currentOrderItems.push({
+            product_id: prod.id,
+            sku: prod.sku,
+            name: prod.name,
+            price: parseFloat(prod.price),
+            quantity: qty
+        });
+    }
+
+    document.getElementById('o-cantidad').value = 1;
+    renderOrderSummary();
+}
+
+function removeOrderItem(index) {
+    currentOrderItems.splice(index, 1);
+    renderOrderSummary();
+}
+
+function renderOrderSummary() {
+    const listEl = document.getElementById('o-items-list');
+
+    if (currentOrderItems.length === 0) {
+        listEl.innerHTML = '<p style="color: #94A3B8; font-size: 13px; text-align: center; margin: 6px 0;">Aún no agregas equipos a la orden</p>';
+    } else {
+        listEl.innerHTML = currentOrderItems.map((item, idx) => `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; border-bottom: 1px solid #334155; font-size: 13px;">
+                <div>
+                    <strong>${item.quantity}x</strong> ${item.name} <span style="color: #94A3B8;">(${item.sku})</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span>$${(item.price * item.quantity).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                    <button type="button" onclick="removeOrderItem(${idx})" style="background: none; border: none; color: #EF4444; cursor: pointer; font-weight: bold;">✕</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    const subtotal = currentOrderItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+    const disc = Math.min(Math.max(parseFloat(document.getElementById('o-descuento').value) || 0, 0), 100);
+    const discounted = subtotal * (1 - disc / 100);
+    const iva = discounted * 0.16;
+    const total = discounted + iva;
+
+    document.getElementById('o-subtotal').innerText = '$' + subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 });
+    document.getElementById('o-iva').innerText = '$' + iva.toLocaleString('es-MX', { minimumFractionDigits: 2 });
+    document.getElementById('o-total').innerText = '$' + total.toLocaleString('es-MX', { minimumFractionDigits: 2 });
+}
+
+async function submitOrder(status) {
+    if (currentOrderItems.length === 0) {
+        alert('Agrega al menos un equipo al pedido.');
+        return;
+    }
+
+    const payload = {
+        client_id: parseInt(document.getElementById('o-cliente').value, 10),
+        discount_percent: parseFloat(document.getElementById('o-descuento').value) || 0,
+        status: status,
+        items: currentOrderItems.map(i => ({
+            product_id: i.product_id,
+            quantity: i.quantity
+        }))
+    };
+
+    try {
+        const res = await fetchAuth('/api/orders', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+            alert('❌ ' + (data.error || 'No se pudo procesar la orden'));
+            return;
+        }
+
+        closeModal('modal-orden');
+        showToast('✅ ' + data.message);
+        await loadAllData();
+    } catch (err) {
+        alert('Error de conexión al guardar la orden');
+    }
+}
+
+async function confirmOrder(orderId) {
+    if (!confirm('¿Confirmar esta cotización como venta y descontar el inventario?')) return;
+
+    try {
+        const res = await fetchAuth('/api/orders/' + orderId + '/confirm', {
+            method: 'PATCH'
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+            alert('❌ ' + (data.error || 'No se pudo confirmar la venta'));
+            return;
+        }
+
+        showToast('✅ ' + data.message);
+        await loadAllData();
+    } catch (err) {
+        alert('Error al confirmar la venta');
+    }
+}
+
+function shareOrderWhatsApp(orderId) {
+    const order = allOrdersCache.find(o => o.id === orderId);
+    if (!order) return;
+
+    const lines = [
+        '*SYNKRO CRM - ' + order.status + ' ' + order.folio + '*',
+        'Cliente: ' + order.client_name,
+        '--------------------------------',
+        ...order.items.map(i => '• ' + i.quantity + 'x ' + i.product_name + ' ($' + parseFloat(i.line_total).toFixed(2) + ')'),
+        '--------------------------------',
+        'Total (IVA incluido): *$' + parseFloat(order.total).toLocaleString('es-MX', { minimumFractionDigits: 2 }) + ' MXN*'
+    ];
+
+    const rawPhone = (order.client_phone || '').replace(/\D/g, '');
+    const text = encodeURIComponent(lines.join('\n'));
+    const url = rawPhone
+        ? 'https://wa.me/' + rawPhone + '?text=' + text
+        : 'https://wa.me/?text=' + text;
+
+    window.open(url, '_blank');
+}
+
+// --- UTILIDADES Y FORMULARIOS ---
 function filterTable(tableId, query) {
     const term = query.toLowerCase();
-    const rows = document.querySelectorAll(`#${tableId} tr`);
+    const rows = document.querySelectorAll('#' + tableId + ' tr');
     rows.forEach(row => {
         row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
     });
 }
 
 function exportTableToCSV(filename, tableId) {
-    const rows = document.querySelectorAll(`#${tableId} tr`);
+    const rows = document.querySelectorAll('#' + tableId + ' tr');
     let csv = [];
     rows.forEach(row => {
         const cols = row.querySelectorAll('td, th');
         let rowData = [];
         cols.forEach((col, idx) => {
-            if (idx < cols.length - 1) rowData.push(`"${col.innerText}"`);
+            if (idx < cols.length - 1) rowData.push('"' + col.innerText + '"');
         });
         if (rowData.length) csv.push(rowData.join(','));
     });
@@ -330,7 +587,7 @@ function exportTableToCSV(filename, tableId) {
 
 async function deleteClient(id) {
     if (confirm('¿Deseas eliminar este cliente?')) {
-        await fetchAuth(`/api/clients/${id}`, { method: 'DELETE' });
+        await fetchAuth('/api/clients/' + id, { method: 'DELETE' });
         showToast('✅ Cliente eliminado');
         loadAllData();
     }
@@ -338,7 +595,7 @@ async function deleteClient(id) {
 
 async function deleteProduct(id) {
     if (confirm('¿Deseas eliminar este producto?')) {
-        await fetchAuth(`/api/products/${id}`, { method: 'DELETE' });
+        await fetchAuth('/api/products/' + id, { method: 'DELETE' });
         showToast('✅ Producto eliminado');
         loadAllData();
     }
@@ -372,7 +629,7 @@ document.getElementById('form-producto').addEventListener('submit', async (e) =>
         category: document.getElementById('p-categoria').value,
         brand: document.getElementById('p-marca').value,
         price: parseFloat(document.getElementById('p-precio').value),
-        stock_quantity: parseInt(document.getElementById('p-stock').value)
+        stock_quantity: parseInt(document.getElementById('p-stock').value, 10)
     };
 
     await fetchAuth('/api/products', {
@@ -402,7 +659,6 @@ function showToast(msg) {
 let html5QrCode = null;
 let scanCooldown = false;
 
-// Acepta SKU interno (CAM-PRO-01) O código de barras comercial (8 a 14 dígitos EAN/UPC)
 const SKU_DFA_REGEX = /^([A-Z]{3,4}-[A-Z0-9]{3,6}-\d{2}|\d{8,14})$/;
 
 async function abrirEscanerSKU() {
@@ -454,7 +710,7 @@ async function onScanSuccess(decodedText) {
     // 1. Validación Léxica con el Autómata (DFA)
     if (!SKU_DFA_REGEX.test(sku)) {
         feedback.style.color = '#FBBF24';
-        feedback.innerHTML = `⚠️ Código leído: <b>${sku}</b><br>Formato inválido (esperado: SKU XXX-XXX-00 o código de barras EAN/UPC).`;
+        feedback.innerHTML = '⚠️ Código leído: <b>' + sku + '</b><br>Formato inválido (esperado: SKU XXX-XXX-00 o código de barras EAN/UPC).';
         return;
     }
 
@@ -465,7 +721,7 @@ async function onScanSuccess(decodedText) {
         document.getElementById('search-products').value = sku;
         document.getElementById('filter-category').value = 'all';
         applyProductFilters();
-        showToast(`🔍 Filtrado por código: ${sku}`);
+        showToast('🔍 Filtrado por código: ' + sku);
         cerrarEscanerSKU();
         return;
     }
@@ -475,7 +731,7 @@ async function onScanSuccess(decodedText) {
         const existing = allProductsCache.find(p => p.sku.toUpperCase() === sku);
         if (existing) {
             feedback.style.color = '#FBBF24';
-            feedback.innerHTML = `⚠️ El código <b>${sku}</b> ya existe en catálogo:<br><b>${existing.name}</b> (${existing.stock_quantity} unids.)`;
+            feedback.innerHTML = '⚠️ El código <b>' + sku + '</b> ya existe en catálogo:<br><b>' + existing.name + '</b> (' + existing.stock_quantity + ' unids.)';
             return;
         }
 
@@ -484,32 +740,32 @@ async function onScanSuccess(decodedText) {
         openModal('modal-producto');
         document.getElementById('p-sku').value = sku;
         document.getElementById('p-nombre').focus();
-        showToast(`➕ Código ${sku} listo para registrar`);
+        showToast('➕ Código ' + sku + ' listo para registrar');
         return;
     }
 
     // 2C. MODO SALIDA RÁPIDA (-1)
     if (mode === 'decrement') {
         feedback.style.color = '#22D3EE';
-        feedback.innerText = `Procesando salida de ${sku}...`;
+        feedback.innerText = 'Procesando salida de ' + sku + '...';
 
         try {
-            const res = await fetchAuth(`/api/products/${encodeURIComponent(sku)}/decrement`, {
+            const res = await fetchAuth('/api/products/' + encodeURIComponent(sku) + '/decrement', {
                 method: 'PATCH'
             });
             const data = await res.json();
 
             if (!res.ok) {
                 feedback.style.color = '#F87171';
-                feedback.innerText = `❌ ${data.error}`;
+                feedback.innerText = '❌ ' + data.error;
                 return;
             }
 
             feedback.style.color = '#34D399';
-            feedback.innerHTML = `✅ <b>${data.product.name}</b><br>Nuevo stock: <b>${data.product.stock_quantity} unids.</b>` +
+            feedback.innerHTML = '✅ <b>' + data.product.name + '</b><br>Nuevo stock: <b>' + data.product.stock_quantity + ' unids.</b>' +
                 (data.low_stock_alert ? '<br><span style="color:#F87171;">🔔 ¡Alerta de stock crítico activada!</span>' : '');
 
-            showToast(`📦 ${data.message}`);
+            showToast('📦 ' + data.message);
             await loadAllData();
         } catch (err) {
             feedback.style.color = '#F87171';
