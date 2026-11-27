@@ -40,6 +40,19 @@ function authenticateToken(req, res, next) {
     });
 }
 
+// Helper para obtener cliente dedicado en transacciones ACID
+async function getTransactionClient() {
+    const pool = typeof db.connect === 'function'
+        ? db
+        : (db.pool && typeof db.pool.connect === 'function' ? db.pool : null);
+
+    if (pool) {
+        const client = await pool.connect();
+        return { client, release: () => client.release() };
+    }
+    return { client: db, release: () => {} };
+}
+
 // --- RUTAS DE AUTENTICACIÓN ---
 
 // Login
@@ -181,6 +194,185 @@ app.patch('/api/products/:sku/decrement', authenticateToken, async (req, res) =>
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor Synkro activo en puerto ${PORT}`);
+// --- RUTAS DE KARDEX Y COTIZACIONES / ÓRDENES B2B ---
+
+// 1. Historial real de movimientos (Kardex) y serie agrupada para Dashboard
+app.get('/api/movements', authenticateToken, async (req, res) => {
+    const range = req.query.range || 'week';
+    const intervalMap = {
+        day: '24 hours',
+        week: '7 days',
+        month: '30 days',
+        year: '12 months'
+    };
+    const formatMap = {
+        day: 'HH24:00',
+        week: 'DD/MM',
+        month: 'DD/MM',
+        year: 'YYYY-MM'
+    };
+
+    const interval = intervalMap[range] || '7 days';
+    const dateFormat = formatMap[range] || 'DD/MM';
+
+    try {
+        const logsResult = await db.query(
+            'SELECT * FROM inventory_movements ORDER BY created_at DESC LIMIT 40'
+        );
+
+        const chartResult = await db.query(
+            `SELECT 
+                TO_CHAR(bucket, $1) AS label,
+                SUM(ABS(quantity_change))::int AS total_units
+             FROM (
+                SELECT 
+                    quantity_change,
+                    CASE 
+                        WHEN $3 = 'day' THEN DATE_TRUNC('hour', created_at AT TIME ZONE 'America/Mexico_City')
+                        WHEN $3 = 'year' THEN DATE_TRUNC('month', created_at AT TIME ZONE 'America/Mexico_City')
+                        ELSE DATE_TRUNC('day', created_at AT TIME ZONE 'America/Mexico_City')
+                    END AS bucket
+                FROM inventory_movements
+                WHERE created_at >= NOW() - $2::interval
+             ) sub
+             GROUP BY bucket
+             ORDER BY bucket ASC`,
+            [dateFormat, interval, range]
+        );
+
+        res.json({
+            logs: logsResult.rows,
+            chart: chartResult.rows
+        });
+    } catch (err) {
+        console.error('Error al consultar Kardex:', err);
+        res.status(500).json({ error: 'Error al obtener movimientos de inventario.' });
+    }
 });
+
+// 2. Listar cotizaciones y órdenes B2B con sus partidas
+app.get('/api/orders', authenticateToken, async (req, res) => {
+    try {
+        const result = await db.query(`
+            SELECT o.*,
+                   c.phone AS client_phone,
+                   COALESCE(
+                       json_agg(
+                           json_build_object(
+                               'product_id', oi.product_id,
+                               'sku', oi.sku,
+                               'product_name', oi.product_name,
+                               'quantity', oi.quantity,
+                               'unit_price', oi.unit_price,
+                               'line_total', oi.line_total
+                           )
+                       ) FILTER (WHERE oi.id IS NOT NULL),
+                       '[]'
+                   ) AS items
+            FROM orders o
+            LEFT JOIN clients c ON c.id = o.client_id
+            LEFT JOIN order_items oi ON oi.order_id = o.id
+            GROUP BY o.id, c.phone
+            ORDER BY o.created_at DESC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 3. Crear Cotización o Venta Confirmada con Transacción ACID (BEGIN / COMMIT / ROLLBACK)
+app.post('/api/orders', authenticateToken, async (req, res) => {
+    const { client_id, items, discount_percent = 0, status = 'CONFIRMADA' } = req.body;
+
+    if (!client_id || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Selecciona un cliente y al menos un producto.' });
+    }
+
+    const { client, release } = await getTransactionClient();
+
+    try {
+        await client.query('BEGIN');
+
+        const clientRes = await client.query(
+            'SELECT id, business_name, phone FROM clients WHERE id = $1',
+            [client_id]
+        );
+        if (clientRes.rowCount === 0) {
+            throw new Error('El cliente seleccionado no existe.');
+        }
+        const customer = clientRes.rows[0];
+
+        let subtotal = 0;
+        const processedItems = [];
+
+        for (const item of items) {
+            const qty = parseInt(item.quantity, 10);
+            if (!qty || qty <= 0) throw new Error('Cantidad inválida en los productos.');
+
+            const prodRes = await client.query(
+                'SELECT id, sku, name, price, stock_quantity FROM products WHERE id = $1 FOR UPDATE',
+                [item.product_id]
+            );
+            if (prodRes.rowCount === 0) {
+                throw new Error(`Producto ID ${item.product_id} no encontrado.`);
+            }
+
+            const prod = prodRes.rows[0];
+
+            // Si es venta confirmada, validar stock y descontar (el Trigger registra el Kardex)
+            if (status === 'CONFIRMADA') {
+                if (prod.stock_quantity < qty) {
+                    throw new Error(`Stock insuficiente para ${prod.name} (Disponible:${prod.stock_quantity}, Solicitado: ${qty}).`); } await client.query( 'UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2', [qty, prod.id] ); }  const unitPrice = parseFloat(prod.price); const lineTotal = unitPrice * qty; subtotal += lineTotal;  processedItems.push({ product_id: prod.id, sku: prod.sku, product_name: prod.name, quantity: qty, unit_price: unitPrice, line_total: lineTotal }); }  const disc = Math.min(Math.max(parseFloat(discount_percent) \vert{}\vert{} 0, 0), 100); const discountedSubtotal = subtotal * (1 - disc / 100); const tax = discountedSubtotal * 0.16; const total = discountedSubtotal + tax; const folio = `SYN-${Date.now().toString().slice(-6)}`;
+
+        const orderRes = await client.query(
+            `INSERT INTO orders (folio, client_id, client_name, discount_percent, subtotal, tax, total, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING *`,
+            [folio, customer.id, customer.business_name, disc, subtotal.toFixed(2), tax.toFixed(2), total.toFixed(2), status]
+        );
+        const newOrder = orderRes.rows[0];
+
+        for (const pItem of processedItems) {
+            await client.query(
+                `INSERT INTO order_items (order_id, product_id, sku, product_name, quantity, unit_price, line_total)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`, [newOrder.id, pItem.product_id, pItem.sku, pItem.product_name, pItem.quantity, pItem.unit_price, pItem.line_total] ); }  await client.query('COMMIT');  res.status(201).json({ message: status === 'CONFIRMADA' ? `Venta ${folio} confirmada y stock descontado`
+                : `Cotización ${folio} generada`,
+            order: { ...newOrder, items: processedItems, client_phone: customer.phone }
+        });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: err.message });
+    } finally {
+        release();
+    }
+});
+
+// 4. Convertir una Cotización existente en Venta Confirmada (descuenta stock con ACID)
+app.patch('/api/orders/:id/confirm', authenticateToken, async (req, res) => {
+    const { client, release } = await getTransactionClient();
+
+    try {
+        await client.query('BEGIN');
+
+        const orderRes = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [req.params.id]);
+        if (orderRes.rowCount === 0) throw new Error('Orden no encontrada.');
+
+        const order = orderRes.rows[0];
+        if (order.status === 'CONFIRMADA') {
+            throw new Error(`La orden ${order.folio} ya está confirmada.`);
+        }
+
+        const itemsRes = await client.query('SELECT * FROM order_items WHERE order_id = $1', [order.id]);
+
+        for (const item of itemsRes.rows) {
+            const prodRes = await client.query(
+                'SELECT id, name, stock_quantity FROM products WHERE id = $1 FOR UPDATE',
+                [item.product_id]
+            );
+            if (prodRes.rowCount === 0) {
+                throw new Error(`El producto ${item.product_name} ya no existe en el catálogo.`);
+            }
+            const prod = prodRes.rows[0];
+            if (prod.stock_quantity < item.quantity) {
+                throw new Error(`Stock insuficiente para ${prod.name} (Disponible: ${prod.stock_quantity}, Requerido:${item.
