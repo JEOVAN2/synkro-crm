@@ -40,7 +40,35 @@ document.addEventListener('DOMContentLoaded', () => {
         radio.addEventListener('change', (e) => {
             currentRange = e.target.value;
             const labelText = e.target.nextElementSibling.innerText;
-            showToast(`📅 Vistas actualizadas a: ${labelText}`); updateDashboard(allClientsCache, allProductsCache); }); }); });  // Desplegar / Ocultar Panel de Notificaciones function toggleNotifDropdown() { const dropdown = document.getElementById('notif-dropdown'); dropdown.style.display = (dropdown.style.display === 'none' \vert{}\vert{} !dropdown.style.display) ? 'block' : 'none'; }  // Cerrar el panel al hacer clic en cualquier parte fuera de la campana document.addEventListener('click', (e) => { const notifBtn = document.querySelector('.btn-notif'); const dropdown = document.getElementById('notif-dropdown'); if (notifBtn && dropdown && !notifBtn.parentElement.contains(e.target)) { dropdown.style.display = 'none'; } });  function checkAuth() { const token = localStorage.getItem('synkro_token'); const username = localStorage.getItem('synkro_user');  if (token) { document.getElementById('login-screen').style.display = 'none'; document.getElementById('app-content').style.display = 'block'; document.getElementById('user-display').innerText = `👤 ${username}`;
+            showToast(`📅 Vistas actualizadas a: ${labelText}`);
+            updateDashboard(allClientsCache, allProductsCache);
+        });
+    });
+});
+
+// Desplegar / Ocultar Panel de Notificaciones
+function toggleNotifDropdown() {
+    const dropdown = document.getElementById('notif-dropdown');
+    dropdown.style.display = (dropdown.style.display === 'none' || !dropdown.style.display) ? 'block' : 'none';
+}
+
+// Cerrar el panel al hacer clic en cualquier parte fuera de la campana
+document.addEventListener('click', (e) => {
+    const notifBtn = document.querySelector('.btn-notif');
+    const dropdown = document.getElementById('notif-dropdown');
+    if (notifBtn && dropdown && !notifBtn.parentElement.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
+});
+
+function checkAuth() {
+    const token = localStorage.getItem('synkro_token');
+    const username = localStorage.getItem('synkro_user');
+
+    if (token) {
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('app-content').style.display = 'block';
+        document.getElementById('user-display').innerText = `👤 ${username}`;
         loadAllData();
     } else {
         document.getElementById('login-screen').style.display = 'flex';
@@ -50,7 +78,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 document.getElementById('form-login').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const username = document.getElementById('login-user').value;
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalText = btn.innerText;
+    btn.disabled = true;
+    btn.innerText = '⏳ Conectando...';
+
+    const username = document.getElementById('login-user').value.trim();
     const password = document.getElementById('login-pass').value;
 
     try {
@@ -64,7 +97,30 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
         if (res.ok) {
             localStorage.setItem('synkro_token', data.token);
             localStorage.setItem('synkro_user', data.username);
-            showToast(`¡Bienvenido ${data.username}!`); checkAuth(); } else { alert(data.error \vert{}\vert{} 'Credenciales incorrectas'); } } catch (err) { alert('Error al conectar con el servidor'); } });  function logout() { localStorage.removeItem('synkro_token'); localStorage.removeItem('synkro_user'); checkAuth(); }  async function fetchAuth(url, options = {}) { const token = localStorage.getItem('synkro_token'); options.headers = { ...options.headers, 'Authorization': `Bearer ${token}`,
+            showToast(`¡Bienvenido ${data.username}!`);
+            checkAuth();
+        } else {
+            alert(data.error || 'Credenciales incorrectas');
+        }
+    } catch (err) {
+        alert('Error al conectar con el servidor');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
+    }
+});
+
+function logout() {
+    localStorage.removeItem('synkro_token');
+    localStorage.removeItem('synkro_user');
+    checkAuth();
+}
+
+async function fetchAuth(url, options = {}) {
+    const token = localStorage.getItem('synkro_token');
+    options.headers = {
+        ...options.headers,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
     };
     const res = await fetch(url, options);
@@ -92,7 +148,13 @@ function updateSyncTimestamp() {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const syncEl = document.getElementById('last-sync-time');
-    if (syncEl) syncEl.innerText = `⏱️ Sincronizado: ${timeStr}`; }  function switchTab(tab) { document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active')); document.querySelectorAll('.tab-content').forEach(sec => sec.style.display = 'none'); document.getElementById(`sec-${tab}`).style.display = 'block';
+    if (syncEl) syncEl.innerText = `⏱️ Sincronizado: ${timeStr}`;
+}
+
+function switchTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(sec => sec.style.display = 'none');
+    document.getElementById(`sec-${tab}`).style.display = 'block';
     event.target.classList.add('active');
 }
 
@@ -105,4 +167,353 @@ async function loadClients() {
             <td><strong>${c.business_name}</strong></td>
             <td>${c.contact_name || '-'}</td>
             <td>${c.phone || '-'}</td>
-            <td>${c.city || '-
+            <td>${c.city || '-'}</td>
+            <td><button class="btn-danger" onclick="deleteClient(${c.id})">🗑️ Eliminar</button></td>
+        </tr>
+    `).join('');
+    return clients;
+}
+
+async function loadProducts() {
+    const res = await fetchAuth('/api/products');
+    const products = await res.json();
+    allProductsCache = products;
+    renderProductsTable(products);
+    return products;
+}
+
+function renderProductsTable(products) {
+    const tbody = document.getElementById('tbl-productos');
+    tbody.innerHTML = products.map(p => {
+        const isLowStock = parseInt(p.stock_quantity) <= 5;
+        const stockClass = isLowStock ? 'stock-low' : 'stock-ok';
+        const stockIcon = isLowStock ? '⚠️ ' : '';
+        const catClass = p.category ? p.category.toLowerCase() : 'accesorios';
+        const categoryClean = (p.category || 'Accesorios').replace(/_/g, ' ');
+
+        return `
+            <tr>
+                <td><code>${p.sku}</code></td>
+                <td>${p.name}</td>
+                <td><span class="badge badge-${catClass}">${categoryClean}</span></td>
+                <td>$${parseFloat(p.price).toFixed(2)}</td>
+                <td><span class="stock-badge ${stockClass}">${stockIcon}${p.stock_quantity} unids.</span></td>
+                <td><button class="btn-danger" onclick="deleteProduct(${p.id})">🗑️ Eliminar</button></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function applyProductFilters() {
+    const textQuery = document.getElementById('search-products').value.toLowerCase();
+    const catQuery = document.getElementById('filter-category').value;
+
+    const filtered = allProductsCache.filter(p => {
+        const matchesText = (p.sku && p.sku.toLowerCase().includes(textQuery)) ||
+                            (p.name && p.name.toLowerCase().includes(textQuery)) ||
+                            (p.brand && p.brand.toLowerCase().includes(textQuery));
+
+        const matchesCat = (catQuery === 'all') || (p.category && p.category.toLowerCase() === catQuery.toLowerCase());
+
+        return matchesText && matchesCat;
+    });
+
+    renderProductsTable(filtered);
+}
+
+function updateDashboard(clients, products) {
+    const metrics = rangeMetrics[currentRange] || rangeMetrics.week;
+
+    // KPIs
+    document.getElementById('kpi-clientes').innerText = clients.length;
+
+    const totalStock = products.reduce((acc, p) => acc + (parseInt(p.stock_quantity) || 0), 0);
+    document.getElementById('kpi-stock').innerText = `${totalStock} Unids.`;
+
+    const totalValue = products.reduce((acc, p) => acc + ((parseFloat(p.price) || 0) * (parseInt(p.stock_quantity) || 0)), 0);
+    document.getElementById('kpi-valor').innerText = `$${totalValue.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+
+    // Alertas en panel de notificaciones
+    const lowStockItems = products.filter(p => parseInt(p.stock_quantity) <= 5);
+    const badge = document.getElementById('notif-badge');
+    const notifList = document.getElementById('notif-list');
+
+    if (lowStockItems.length > 0) {
+        badge.style.display = 'inline-block';
+        badge.innerText = lowStockItems.length;
+
+        notifList.innerHTML = lowStockItems.map(p => `
+            <div class="notif-item">
+                <strong>⚠️ Alerta de Inventario Crítico</strong>
+                El producto <b>${p.name}</b> (${p.sku}) cuenta con únicamente <b>${p.stock_quantity} unidad(es)</b> en stock.
+            </div>
+        `).join('');
+    } else {
+        badge.style.display = 'none';
+        notifList.innerHTML = '<p style="color: #94A3B8; font-size: 13px; margin: 10px 0; text-align: center;">Sin notificaciones pendientes</p>';
+    }
+
+    // 1. Gráfico Doughnut: Categorías (Paleta Azul Cobalto)
+    const catMap = {};
+    products.forEach(p => {
+        const catName = p.category ? p.category.replace(/_/g, ' ') : 'otros';
+        catMap[catName] = (catMap[catName] || 0) + parseInt(p.stock_quantity);
+    });
+
+    if (chartCatInstance) chartCatInstance.destroy();
+    const ctxCat = document.getElementById('chart-categorias').getContext('2d');
+    chartCatInstance = new Chart(ctxCat, {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(catMap),
+            datasets: [{
+                data: Object.values(catMap),
+                backgroundColor: ['#3B82F6', '#06B6D4', '#8B5CF6', '#10B981', '#F59E0B'],
+                borderColor: '#1E293B',
+                borderWidth: 2
+            }]
+        },
+        options: { plugins: { legend: { labels: { color: '#F8FAFC' } } } }
+    });
+
+    // 2. Gráfico de Barras: Dinámico por Rango Activo
+    if (chartCityInstance) chartCityInstance.destroy();
+    const ctxCity = document.getElementById('chart-ciudades').getContext('2d');
+    chartCityInstance = new Chart(ctxCity, {
+        type: 'bar',
+        data: {
+            labels: metrics.labels,
+            datasets: [{
+                label: metrics.subtext,
+                data: metrics.data,
+                backgroundColor: '#3B82F6',
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                x: { ticks: { color: '#F8FAFC' }, grid: { color: 'rgba(51, 65, 85, 0.4)' } },
+                y: { ticks: { color: '#F8FAFC' }, grid: { color: 'rgba(51, 65, 85, 0.4)' }, beginAtZero: true }
+            },
+            plugins: { legend: { labels: { color: '#F8FAFC' } } }
+        }
+    });
+}
+
+function filterTable(tableId, query) {
+    const term = query.toLowerCase();
+    const rows = document.querySelectorAll(`#${tableId} tr`);
+    rows.forEach(row => {
+        row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+    });
+}
+
+function exportTableToCSV(filename, tableId) {
+    const rows = document.querySelectorAll(`#${tableId} tr`);
+    let csv = [];
+    rows.forEach(row => {
+        const cols = row.querySelectorAll('td, th');
+        let rowData = [];
+        cols.forEach((col, idx) => {
+            if (idx < cols.length - 1) rowData.push(`"${col.innerText}"`);
+        });
+        if (rowData.length) csv.push(rowData.join(','));
+    });
+
+    const csvFile = new Blob([csv.join('\n')], { type: 'text/csv' });
+    const downloadLink = document.createElement('a');
+    downloadLink.download = filename;
+    downloadLink.href = window.URL.createObjectURL(csvFile);
+    downloadLink.click();
+}
+
+async function deleteClient(id) {
+    if (confirm('¿Deseas eliminar este cliente?')) {
+        await fetchAuth(`/api/clients/${id}`, { method: 'DELETE' });
+        showToast('✅ Cliente eliminado');
+        loadAllData();
+    }
+}
+
+async function deleteProduct(id) {
+    if (confirm('¿Deseas eliminar este producto?')) {
+        await fetchAuth(`/api/products/${id}`, { method: 'DELETE' });
+        showToast('✅ Producto eliminado');
+        loadAllData();
+    }
+}
+
+document.getElementById('form-cliente').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+        business_name: document.getElementById('c-negocio').value,
+        contact_name: document.getElementById('c-contacto').value,
+        phone: document.getElementById('c-telefono').value,
+        city: document.getElementById('c-ciudad').value
+    };
+
+    await fetchAuth('/api/clients', {
+        method: 'POST',
+        body: JSON.stringify(body)
+    });
+
+    closeModal('modal-cliente');
+    e.target.reset();
+    showToast('✅ Cliente guardado');
+    loadAllData();
+});
+
+document.getElementById('form-producto').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+        sku: document.getElementById('p-sku').value.trim().toUpperCase(),
+        name: document.getElementById('p-nombre').value,
+        category: document.getElementById('p-categoria').value,
+        brand: document.getElementById('p-marca').value,
+        price: parseFloat(document.getElementById('p-precio').value),
+        stock_quantity: parseInt(document.getElementById('p-stock').value)
+    };
+
+    await fetchAuth('/api/products', {
+        method: 'POST',
+        body: JSON.stringify(body)
+    });
+
+    closeModal('modal-producto');
+    e.target.reset();
+    showToast('✅ Producto guardado');
+    loadAllData();
+});
+
+function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.innerText = msg;
+    toast.className = 'toast show';
+    setTimeout(() => { toast.className = toast.className.replace('show', ''); }, 3000);
+}
+
+// =========================================================
+// MÓDULO ESCÁNER DE SKU Y CÓDIGOS DE BARRAS (html5-qrcode + DFA)
+// =========================================================
+let html5QrCode = null;
+let scanCooldown = false;
+
+// Acepta SKU interno (CAM-PRO-01) O código de barras comercial (8 a 14 dígitos EAN/UPC)
+const SKU_DFA_REGEX = /^([A-Z]{3,4}-[A-Z0-9]{3,6}-\d{2}|\d{8,14})$/;
+
+async function abrirEscanerSKU() {
+    const modal = document.getElementById('scanner-modal');
+    const feedback = document.getElementById('scanner-feedback');
+    modal.style.display = 'flex';
+    feedback.style.color = '#94A3B8';
+    feedback.innerText = 'Iniciando cámara trasera...';
+
+    try {
+        html5QrCode = new Html5Qrcode('qr-reader');
+        await html5QrCode.start(
+            { facingMode: 'environment' },
+            { fps: 12, qrbox: { width: 270, height: 130 } },
+            onScanSuccess,
+            () => {}
+        );
+        feedback.innerText = 'Listo. Apunta al código de barras o QR del equipo.';
+    } catch (err) {
+        feedback.style.color = '#F87171';
+        feedback.innerText = 'No se pudo abrir la cámara. Revisa los permisos del navegador.';
+        console.error(err);
+    }
+}
+
+async function cerrarEscanerSKU() {
+    const modal = document.getElementById('scanner-modal');
+    if (html5QrCode) {
+        try {
+            await html5QrCode.stop();
+            html5QrCode.clear();
+        } catch (e) {
+            console.warn('Escáner ya detenido');
+        }
+        html5QrCode = null;
+    }
+    modal.style.display = 'none';
+}
+
+async function onScanSuccess(decodedText) {
+    if (scanCooldown) return;
+    scanCooldown = true;
+    setTimeout(() => { scanCooldown = false; }, 2000);
+
+    const sku = decodedText.trim().toUpperCase();
+    const feedback = document.getElementById('scanner-feedback');
+    const mode = document.querySelector('input[name="scanMode"]:checked').value;
+
+    // 1. Validación Léxica con el Autómata (DFA)
+    if (!SKU_DFA_REGEX.test(sku)) {
+        feedback.style.color = '#FBBF24';
+        feedback.innerHTML = `⚠️ Código leído: <b>${sku}</b><br>Formato inválido (esperado: SKU XXX-XXX-00 o código de barras EAN/UPC).`;
+        return;
+    }
+
+    if (navigator.vibrate) navigator.vibrate(100);
+
+    // 2A. MODO CONSULTA
+    if (mode === 'search') {
+        document.getElementById('search-products').value = sku;
+        document.getElementById('filter-category').value = 'all';
+        applyProductFilters();
+        showToast(`🔍 Filtrado por código: ${sku}`);
+        cerrarEscanerSKU();
+        return;
+    }
+
+    // 2B. MODO ALTA DE PRODUCTO NUEVO (BARRAS O QR)
+    if (mode === 'register') {
+        const existing = allProductsCache.find(p => p.sku.toUpperCase() === sku);
+        if (existing) {
+            feedback.style.color = '#FBBF24';
+            feedback.innerHTML = `⚠️ El código <b>${sku}</b> ya existe en catálogo:<br><b>${existing.name}</b> (${existing.stock_quantity} unids.)`;
+            return;
+        }
+
+        await cerrarEscanerSKU();
+        document.getElementById('form-producto').reset();
+        openModal('modal-producto');
+        document.getElementById('p-sku').value = sku;
+        document.getElementById('p-nombre').focus();
+        showToast(`➕ Código ${sku} listo para registrar`);
+        return;
+    }
+
+    // 2C. MODO SALIDA RÁPIDA (-1)
+    if (mode === 'decrement') {
+        feedback.style.color = '#22D3EE';
+        feedback.innerText = `Procesando salida de ${sku}...`;
+
+        try {
+            const res = await fetchAuth(`/api/products/${encodeURIComponent(sku)}/decrement`, {
+                method: 'PATCH'
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                feedback.style.color = '#F87171';
+                feedback.innerText = `❌ ${data.error}`;
+                return;
+            }
+
+            feedback.style.color = '#34D399';
+            feedback.innerHTML = `✅ <b>${data.product.name}</b><br>Nuevo stock: <b>${data.product.stock_quantity} unids.</b>` +
+                (data.low_stock_alert ? '<br><span style="color:#F87171;">🔔 ¡Alerta de stock crítico activada!</span>' : '');
+
+            showToast(`📦 ${data.message}`);
+            await loadAllData();
+        } catch (err) {
+            feedback.style.color = '#F87171';
+            feedback.innerText = 'Error de conexión con el servidor.';
+        }
+    }
+}
